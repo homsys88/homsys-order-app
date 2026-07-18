@@ -29,6 +29,18 @@ function applyCloudPayload(data){
   return true;
 }
 
+async function fetchLatestDraftOrder(){
+  if(!db) throw new Error('Supabase 연결이 없습니다.');
+  const { data, error } = await db
+    .from('app_state')
+    .select('data')
+    .eq('id', CLOUD_ROW_ID)
+    .maybeSingle();
+  if(error) throw error;
+  const draft = data && data.data ? data.data.draft_order : null;
+  return (draft && typeof draft === 'object') ? draft : null;
+}
+
 async function saveCloudNow(){
   if(!db){
     alert('Supabase 연결 설정을 확인해주세요. 클라우드에 저장할 수 없습니다.');

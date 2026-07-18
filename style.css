@@ -190,3 +190,8 @@
     .invoice{padding:16px;}
     nav.tabs button{padding:10px 12px;font-size:13px;}
   }
+
+/* v9.2 날짜 선택 */
+.date-field-wrap{display:flex;gap:8px;align-items:center;}
+.date-field-wrap input[type="date"]{flex:1;min-width:0;height:38px;border:1px solid var(--line);border-radius:8px;padding:0 10px;background:#fff;color:var(--ink);font:inherit;cursor:pointer;}
+.date-today-btn{height:38px;padding:0 14px;border:1px solid var(--line);border-radius:8px;background:#fff;font-weight:700;cursor:pointer;white-space:nowrap;}
