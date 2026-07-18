@@ -168,36 +168,37 @@ function mergeSeedData(dataVersion){
 function currentCustomer(){ return state.customers.find(c=>c.id===state.orderMeta.customerId) || null; }
 function currentSupplier(){ return state.suppliers.find(s=>s.id===state.orderMeta.supplierId) || null; }
 
-/* ============ 솔라피 발송 (구인문자앱과 동일한 검증된 방식) ============ */
-let apiKey='', apiSecret='', fromNum='';
-function loadApiSettings(){
-  const cfg = state.smsSettings || {};
-  apiKey = cfg.apiKey || '';
-  apiSecret = cfg.apiSecret || '';
-  fromNum = cfg.fromNum || '';
+/* ============ 솔라피 보안 발송: Supabase Edge Function ============ */
+function loadApiSettings(){ /* 비밀키는 브라우저에 저장하지 않음 */ }
+function saveApiSettings(){ alert('솔라피 비밀키는 Supabase Edge Function의 Secrets에만 저장합니다.'); }
+
+async function sendSolapiSecure(payload){
+  if(!db) throw new Error('Supabase 연결이 없습니다.');
+  const { data: sessionData } = await db.auth.getSession();
+  if(!sessionData || !sessionData.session) throw new Error('로그인이 필요합니다.');
+  const { data, error } = await db.functions.invoke('send-solapi-message', { body: payload });
+  if(error){
+    let msg=error.message || '문자발송 서버 호출에 실패했습니다.';
+    try{
+      if(error.context && typeof error.context.json==='function'){
+        const detail=await error.context.json();
+        msg=detail.error || detail.message || msg;
+      }
+    }catch(_e){}
+    throw new Error(msg);
+  }
+  if(!data || data.ok!==true) throw new Error((data && (data.error||data.message)) || '문자발송에 실패했습니다.');
+  return data;
 }
-function saveApiSettings(){ alert('보안을 위해 브라우저에서 솔라피 비밀키 저장을 중단했습니다. 문자발송은 서버 기능으로 이전한 뒤 다시 연결합니다.'); }
-function toggleSecret(){
-  const el=document.getElementById('cfgApiSecret');
-  const btn=document.getElementById('secretToggleBtn');
-  if(el.type==='password'){ el.type='text'; if(btn) btn.textContent='🙈 가리기'; }
-  else { el.type='password'; if(btn) btn.textContent='👁 보기'; }
+
+async function sendSms(to,text){
+  try{
+    const result=await sendSolapiSecure({mode:'text',to,text});
+    return {ok:true,data:result};
+  }catch(e){
+    return {ok:false,error:e.message};
+  }
 }
-function updateSecretLen(){
-  const el=document.getElementById('cfgApiSecret');
-  const sp=document.getElementById('secretLen');
-  if(el&&sp){ const v=el.value; sp.innerHTML='현재 '+v.length+'자'+(v&&/\s/.test(v)?' · ⚠ 공백이 포함되어 있어요':''); }
-}
-async function getAuthHeader(){
-  const date=new Date().toISOString();
-  const salt=Math.random().toString(36).substring(2,12);
-  const enc=new TextEncoder();
-  const key=await crypto.subtle.importKey('raw',enc.encode(apiSecret),{name:'HMAC',hash:'SHA-256'},false,['sign']);
-  const sig=await crypto.subtle.sign('HMAC',key,enc.encode(date+salt));
-  const signature=Array.from(new Uint8Array(sig)).map(b=>b.toString(16).padStart(2,'0')).join('');
-  return 'HMAC-SHA256 apiKey='+apiKey+', date='+date+', salt='+salt+', signature='+signature;
-}
-async function sendSms(){ return {ok:false,error:'보안 점검 중이라 문자발송을 잠시 중단했습니다.'}; }
 function buildOrderSmsText(){
   const cust=currentCustomer();
   const sup=currentSupplier();
@@ -249,34 +250,8 @@ async function invoiceToJpegBase64(){
   }
   return work.toDataURL('image/jpeg',0.5).split(',')[1];
 }
-// 솔라피 스토리지에 이미지 업로드 → fileId
-async function uploadMmsImage(base64){
-  const auth=await getAuthHeader();
-  const res=await fetch('https://api.solapi.com/storage/v1/files',{
-    method:'POST',
-    headers:{'Content-Type':'application/json','Authorization':auth},
-    body:JSON.stringify({file:base64, type:'MMS'})
-  });
-  if(!res.ok){
-    const e=await res.json().catch(()=>({}));
-    throw new Error(e.errorMessage||e.message||('이미지 업로드 실패 (HTTP '+res.status+')'));
-  }
-  const data=await res.json();
-  return data.fileId;
-}
-async function sendMms(to, subject, text, imageId){
-  const auth=await getAuthHeader();
-  const msg={to:to.replace(/[^0-9]/g,''), from:fromNum.replace(/[^0-9]/g,''), text, subject, imageId, type:'MMS'};
-  const res=await fetch('https://api.solapi.com/messages/v4/send',{
-    method:'POST',
-    headers:{'Content-Type':'application/json','Authorization':auth},
-    body:JSON.stringify({message:msg})
-  });
-  if(!res.ok){
-    const e=await res.json().catch(()=>({}));
-    throw new Error(e.errorMessage||e.message||('MMS 발송 실패 (HTTP '+res.status+')'));
-  }
-  return true;
+async function sendMmsSecure(to, subject, text, imageBase64){
+  return sendSolapiSecure({mode:'mms',to,subject,text,imageBase64});
 }
 
 const TABS = [
@@ -1074,14 +1049,14 @@ async function makePDF(){
 
 function openSmsModal(){
   const cust=currentCustomer();
-  const connected = apiKey && apiSecret && fromNum;
+  const connected = true;
   const preview = buildOrderSmsText();
   const defaultTo = cust && cust.phone ? cust.phone : '';
   document.getElementById('modalRoot').innerHTML = `
   <div class="modal-bg" onclick="if(event.target===this) closeModal()">
     <div class="modal">
       <h3>✉ 문자 발송</h3>
-      ${connected ? '' : `<div class="lock-hint" style="margin-bottom:12px;">먼저 [설정 → 문자발송]에서 솔라피 정보를 입력하세요.</div>`}
+      <div class="lock-hint" style="margin-bottom:12px;">로그인 계정으로 Supabase 보안 서버를 통해 발송합니다.</div>
 
       <div class="send-mode" style="margin-bottom:12px;">
         <button class="mode-btn on" id="modeImgBtn" onclick="setSmsMode('img')">🖼 명세서 이미지로 보내기 <span class="muted">(MMS)</span></button>
@@ -1102,7 +1077,7 @@ function openSmsModal(){
       <div id="smsResult" style="font-size:13px;margin-top:4px;"></div>
       <div class="modal-actions">
         <button class="btn ghost" onclick="closeModal()">닫기</button>
-        <button class="btn accent" id="smsSendBtn" onclick="doSend()" ${connected?'':'disabled'}>이미지로 보내기</button>
+        <button class="btn accent" id="smsSendBtn" onclick="doSend()" >이미지로 보내기</button>
       </div>
     </div>
   </div>`;
@@ -1133,12 +1108,9 @@ async function doSendMms(){
     const text='거래명세서를 보내드립니다. 합계 '+fmt(calcTotals().grand)+'원 (VAT포함)';
     rd.innerHTML='<span class="muted">명세서 이미지를 만드는 중…</span>';
     const b64=await invoiceToJpegBase64();
-    btn.textContent='업로드 중…';
-    rd.innerHTML='<span class="muted">이미지 업로드 중…</span>';
-    const fileId=await uploadMmsImage(b64);
     btn.textContent='보내는 중…';
-    rd.innerHTML='<span class="muted">발송 중…</span>';
-    await sendMms(to, subject, text, fileId);
+    rd.innerHTML='<span class="muted">보안 서버를 통해 발송 중…</span>';
+    await sendMmsSecure(to, subject, text, b64);
     rd.innerHTML='<span style="color:var(--teal)">✓ 이미지 문자(MMS)를 발송했습니다.</span>';
     btn.textContent='발송됨';
     toast('이미지 문자를 발송했습니다');
@@ -1246,9 +1218,10 @@ async function changePassword(){
 }
 
 function renderSmsSettings(){
-  return `<div class="card"><h2>문자발송 보안 전환 중</h2>
-  <div class="lock-hint">솔라피 API Secret을 공개 웹앱에 저장하면 노출될 수 있어 문자발송을 잠시 중단했습니다.</div>
-  <p class="desc">다음 단계에서 Supabase Edge Function에 비밀키를 보관하고, 로그인한 사용자만 호출하도록 연결합니다. PDF·카톡·발주 저장은 계속 사용할 수 있습니다.</p></div>`;
+  return `<div class="card"><h2>문자발송 보안연동</h2>
+  <div class="lock-hint">솔라피 API Key·Secret과 발신번호는 Supabase Edge Function Secrets에만 저장됩니다.</div>
+  <p class="desc">로그인한 사용자만 문자 또는 이미지 문자 발송을 요청할 수 있습니다. 앱과 GitHub에는 비밀키가 저장되지 않습니다.</p>
+  <div class="pick-summary" style="margin-top:12px;"><b>연동 함수:</b> send-solapi-message<br><b>발송 방식:</b> LMS/SMS 자동, MMS 이미지 발송<br><b>발주 저장:</b> 문자발송과 별도</div></div>`;
 }
 
 async function resetOne(what){
