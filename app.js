@@ -25,7 +25,7 @@ let realtimeChannel = null;
 const BRANDS = ['귀뚜라미','경동','대성셀틱','중형'];
 const PRICE_GROUPS = { '0가':0, '1가':1000, '2가':2000, '3가':3000, '4가':4000, '5가':5000, '10가':10000 };
 const PRICE_GROUP_KEYS = Object.keys(PRICE_GROUPS);
-const DATA_VERSION = 10.0; // v10.0: Supabase 로그인 + RLS 보안 적용 완료
+const DATA_VERSION = 11.0; // v11: 비밀번호 변경 + 발주이력 검색·복사·PDF·삭제
 function localTodayISO(){
   const now = new Date();
   const y = now.getFullYear();
@@ -57,6 +57,7 @@ let state = {
   orderCustSearch: '',
   favoriteCustomerIds: [],
   custSearch: '',
+  historyFilters: { from:'', to:'', customer:'', orderNo:'', brand:'전체' },
   _idSeq: 2000,
 };
 
@@ -810,49 +811,69 @@ function saveToHistory(silent){
   saveData(true);
   if(!silent){ toast('발주번호 '+entry.orderNo+'로 저장했습니다'); render(); }
 }
-function renderHistoryTab(){
-  const q=(state.historySearch||'').trim();
-  let list=state.orderHistory;
-  if(q) list=list.filter(h=>h.customerName.includes(q)||h.date.includes(q)||String(h.orderNo||'').includes(q));
-  const rows=list.map(h=>{
-    const items=h.lines.map(l=>`${l.model} ${l.qty}대`).join(', ');
+function filteredHistory(){
+  const f=state.historyFilters || {from:'',to:'',customer:'',orderNo:'',brand:'전체'};
+  return state.orderHistory.filter(h=>{
+    if(f.from && String(h.date||'') < f.from) return false;
+    if(f.to && String(h.date||'') > f.to) return false;
+    if(f.customer && !String(h.customerName||'').toLowerCase().includes(f.customer.toLowerCase())) return false;
+    if(f.orderNo && !String(h.orderNo||'').includes(f.orderNo)) return false;
+    if(f.brand && f.brand!=='전체' && !(h.lines||[]).some(l=>l.brand===f.brand)) return false;
+    return true;
+  });
+}
+function historyRows(list){
+  return list.map(h=>{
+    const items=(h.lines||[]).map(l=>`${l.model} ${l.qty}대`).join(', ');
     return `<tr>
       <td class="num">${h.orderNo||'-'}</td>
-      <td>${h.date}</td>
-      <td>${h.customerName}</td>
+      <td>${h.date||'-'}</td>
+      <td>${h.customerName||'-'}</td>
       <td class="muted" style="font-size:12px;max-width:280px;white-space:normal;">${items}</td>
       <td class="r num">${fmt(h.grand)}원</td>
-      <td class="r">
-        <button class="btn ghost sm" onclick="viewHistory(${h.id})">다시 열기/PDF</button>
+      <td class="r history-actions">
+        <button class="btn ghost sm" onclick="viewHistory(${h.id})">열기/PDF</button>
         <button class="btn ghost sm" onclick="editHistory(${h.id})">수정</button>
-        <button class="btn ghost sm" onclick="reuseHistory(${h.id})">재사용</button>
+        <button class="btn ghost sm" onclick="reuseHistory(${h.id})">복사</button>
         <button class="btn danger" onclick="deleteHistory(${h.id})">삭제</button>
       </td></tr>`;
   }).join('');
+}
+function renderHistoryTab(){
+  const f=state.historyFilters || {from:'',to:'',customer:'',orderNo:'',brand:'전체'};
+  const list=filteredHistory();
+  const brandOpts=['전체',...BRANDS].map(b=>`<option value="${b}" ${f.brand===b?'selected':''}>${b==='전체'?'전체 브랜드':brandShort(b)}</option>`).join('');
   return `<div class="card">
     <h2>발주 이력 <span class="badge-vat">${state.orderHistory.length}건</span></h2>
-    <p class="desc">거래명세서에서 <b>💾 발주 저장</b>을 누른 발주가 여기 쌓입니다. 문자발송 여부와 관계없이 저장됩니다. 나중에 조회하거나, 같은 거래처 재발주 시 불러와서 수량만 고쳐 쓸 수 있어요.</p>
-    <label class="f" style="margin-bottom:12px;">🔍 검색 (거래처명 또는 날짜)
-      <input type="text" id="historySearch" placeholder="예: 하나보일러 또는 2026-07" value="${q.replace(/"/g,'&quot;')}" oninput="onHistorySearch(this.value)" style="max-width:340px;"></label>
+    <p class="desc">기간·거래처·발주번호·브랜드로 찾고, 저장된 발주를 다시 열거나 PDF로 내려받고 복사해 새 발주로 사용할 수 있습니다.</p>
+    <div class="history-filter-grid">
+      <label class="f">시작일<input type="date" value="${f.from||''}" onchange="setHistoryFilter('from',this.value)"></label>
+      <label class="f">종료일<input type="date" value="${f.to||''}" onchange="setHistoryFilter('to',this.value)"></label>
+      <label class="f">거래처명<input type="text" placeholder="거래처명 일부" value="${String(f.customer||'').replace(/"/g,'&quot;')}" oninput="setHistoryFilter('customer',this.value)"></label>
+      <label class="f">발주번호<input type="text" placeholder="예: 20260719" value="${String(f.orderNo||'').replace(/"/g,'&quot;')}" oninput="setHistoryFilter('orderNo',this.value)"></label>
+      <label class="f">브랜드<select onchange="setHistoryFilter('brand',this.value)">${brandOpts}</select></label>
+      <div class="history-filter-actions"><button class="btn ghost" onclick="resetHistoryFilters()">검색 초기화</button></div>
+    </div>
+    <div class="history-result-summary">검색 결과 <b>${list.length}건</b></div>
     <div class="table-wrap"><table>
       <thead><tr><th>발주번호</th><th>일자</th><th>거래처</th><th>품목</th><th class="r">합계</th><th></th></tr></thead>
-      <tbody id="historyTbody">${rows||`<tr><td colspan="6" class="empty">${q?'검색 결과가 없습니다.':'저장된 발주 이력이 없습니다.'}</td></tr>`}</tbody>
+      <tbody id="historyTbody">${historyRows(list)||`<tr><td colspan="6" class="empty">검색 결과가 없습니다.</td></tr>`}</tbody>
     </table></div>
   </div>`;
 }
-function onHistorySearch(v){
-  state.historySearch=v;
+function setHistoryFilter(key,value){
+  state.historyFilters = state.historyFilters || {from:'',to:'',customer:'',orderNo:'',brand:'전체'};
+  state.historyFilters[key]=value;
   const tb=document.getElementById('historyTbody');
-  if(!tb) return;
-  const q=(v||'').trim();
-  let list=state.orderHistory;
-  if(q) list=list.filter(h=>h.customerName.includes(q)||h.date.includes(q)||String(h.orderNo||'').includes(q));
-  tb.innerHTML=list.map(h=>{
-    const items=h.lines.map(l=>`${l.model} ${l.qty}대`).join(', ');
-    return `<tr><td class="num">${h.orderNo||'-'}</td><td>${h.date}</td><td>${h.customerName}</td><td class="muted" style="font-size:12px;max-width:280px;white-space:normal;">${items}</td><td class="r num">${fmt(h.grand)}원</td><td class="r"><button class="btn ghost sm" onclick="viewHistory(${h.id})">다시 열기/PDF</button> <button class="btn ghost sm" onclick="editHistory(${h.id})">수정</button>
-        <button class="btn ghost sm" onclick="reuseHistory(${h.id})">재사용</button> <button class="btn danger" onclick="deleteHistory(${h.id})">삭제</button></td></tr>`;
-  }).join('')||`<tr><td colspan="6" class="empty">검색 결과가 없습니다.</td></tr>`;
+  if(tb) tb.innerHTML=historyRows(filteredHistory())||`<tr><td colspan="6" class="empty">검색 결과가 없습니다.</td></tr>`;
+  const summary=document.querySelector('.history-result-summary');
+  if(summary) summary.innerHTML=`검색 결과 <b>${filteredHistory().length}건</b>`;
 }
+function resetHistoryFilters(){
+  state.historyFilters={from:'',to:'',customer:'',orderNo:'',brand:'전체'};
+  render();
+}
+
 function loadHistoryIntoOrder(id){
   const h=state.orderHistory.find(x=>x.id===id);
   if(!h) return false;
@@ -1054,6 +1075,7 @@ function renderSettingsTab(){
       <button class="${sub==='customer'?'on':''}" onclick="setSettingsSub('customer')">거래처</button>
       <button class="${sub==='supplier'?'on':''}" onclick="setSettingsSub('supplier')">공급자</button>
       <button class="${sub==='sms'?'on':''}" onclick="setSettingsSub('sms')">문자발송</button>
+      <button class="${sub==='account'?'on':''}" onclick="setSettingsSub('account')">계정·비밀번호</button>
     </div>`;
   let body='';
   if(sub==='import') body = renderImportAllSettings();
@@ -1061,10 +1083,46 @@ function renderSettingsTab(){
   else if(sub==='shipping') body = renderShipSettings();
   else if(sub==='sms') body = renderSmsSettings();
   else if(sub==='supplier') body = renderSupplierSettings();
+  else if(sub==='account') body = renderAccountSettings();
   else body = renderCustomerSettings();
   return subNav + body;
 }
 function setSettingsSub(s){ state.settingsSub=s; render(); }
+
+function renderAccountSettings(){
+  const email=document.getElementById('loginUser')?.textContent || '';
+  return `<div class="card account-card">
+    <h2>계정·비밀번호</h2>
+    <p class="desc">현재 로그인 계정: <b>${email||'로그인 계정'}</b></p>
+    <div class="password-change-box">
+      <label class="f">새 비밀번호<input id="newPassword" type="password" minlength="8" autocomplete="new-password" placeholder="8자 이상"></label>
+      <label class="f">새 비밀번호 확인<input id="newPasswordConfirm" type="password" minlength="8" autocomplete="new-password" placeholder="같은 비밀번호 다시 입력"></label>
+      <button id="changePasswordBtn" class="btn accent" onclick="changePassword()">비밀번호 변경</button>
+      <p class="desc small">변경한 비밀번호는 GitHub나 앱 데이터에 저장되지 않습니다.</p>
+    </div>
+  </div>`;
+}
+async function changePassword(){
+  const pw=document.getElementById('newPassword')?.value || '';
+  const confirmPw=document.getElementById('newPasswordConfirm')?.value || '';
+  const btn=document.getElementById('changePasswordBtn');
+  if(pw.length<8){ alert('새 비밀번호는 8자 이상으로 입력해주세요.'); return; }
+  if(pw!==confirmPw){ alert('새 비밀번호와 확인 값이 다릅니다.'); return; }
+  if(!confirm('비밀번호를 변경할까요?')) return;
+  btn.disabled=true; btn.textContent='변경 중...';
+  try{
+    const { error }=await db.auth.updateUser({password:pw});
+    if(error) throw error;
+    document.getElementById('newPassword').value='';
+    document.getElementById('newPasswordConfirm').value='';
+    alert('비밀번호가 변경되었습니다. 다음 로그인부터 새 비밀번호를 사용하세요.');
+  }catch(e){
+    console.error(e);
+    alert('비밀번호 변경에 실패했습니다. 잠시 후 다시 시도해주세요.');
+  }finally{
+    btn.disabled=false; btn.textContent='비밀번호 변경';
+  }
+}
 
 function renderSmsSettings(){
   return `<div class="card"><h2>문자발송 보안 전환 중</h2>

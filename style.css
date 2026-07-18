@@ -230,3 +230,14 @@
 .login-user{font-size:12px;color:#c7d1df;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .logout-btn{border:1px solid #46566d;background:transparent;color:#fff;border-radius:7px;padding:6px 10px;cursor:pointer;font-size:12px;}
 @media(max-width:700px){.login-user{display:none}.header-actions{right:8px;top:8px}.logout-btn{padding:5px 8px}}
+
+
+/* v11 발주이력 검색·계정 */
+.history-filter-grid{display:grid;grid-template-columns:repeat(5,minmax(130px,1fr));gap:10px;align-items:end;margin:14px 0 10px;}
+.history-filter-actions{display:flex;align-items:end;height:100%;}
+.history-result-summary{margin:4px 0 10px;color:var(--ink-soft);font-size:13px;}
+.history-actions{white-space:nowrap;}
+.account-card{max-width:720px;}
+.password-change-box{max-width:440px;display:grid;gap:12px;margin-top:18px;padding:18px;border:1px solid var(--border);border-radius:14px;background:#fafbfd;}
+.desc.small{font-size:12px;margin:0;}
+@media(max-width:900px){.history-filter-grid{grid-template-columns:repeat(2,minmax(0,1fr));}.history-filter-actions{grid-column:1/-1;}.history-actions{white-space:normal;}.history-actions .btn{margin:2px 0;}}
