@@ -235,6 +235,9 @@ const db = supabaseEnabled
 
 let cloudSaveTimer = null;
 let cloudSaving = false;
+let cloudSaveQueued = false;
+let cloudLastUpdatedAt = '';
+let realtimeChannel = null;
 
 const BRANDS = ['귀뚜라미','경동','대성셀틱','중형'];
 const PRICE_GROUPS = { '0가':0, '1가':1000, '2가':2000, '3가':3000, '4가':4000, '5가':5000, '10가':10000 };
@@ -268,6 +271,17 @@ let state = {
   custSearch: '',
   _idSeq: 600,
 };
+
+// 초기화할 때 사용할 HTML 기본 데이터 복사본
+const DEFAULT_PERSISTED_STATE = JSON.parse(JSON.stringify({
+  costItems: state.costItems,
+  shippingItems: state.shippingItems,
+  customers: state.customers,
+  suppliers: state.suppliers,
+  orderHistory: state.orderHistory,
+  idSeq: state._idSeq
+}));
+
 function nextId(){ return ++state._idSeq; }
 function fmt(n){ return (n||0).toLocaleString('ko-KR'); }
 function findCost(brand, model){ const c = state.costItems.find(c=>c.brand===brand && c.model===model); return c?c.cost:0; }
@@ -311,11 +325,10 @@ function currentSupplier(){ return state.suppliers.find(s=>s.id===state.orderMet
 /* ============ 솔라피 발송 (구인문자앱과 동일한 검증된 방식) ============ */
 let apiKey='', apiSecret='', fromNum='';
 function loadApiSettings(){
-  try{
-    apiKey = localStorage.getItem('homsys_apiKey') || '';
-    apiSecret = localStorage.getItem('homsys_apiSecret') || '';
-    fromNum = localStorage.getItem('homsys_fromNum') || '';
-  }catch(e){}
+  const cfg = state.smsSettings || {};
+  apiKey = cfg.apiKey || '';
+  apiSecret = cfg.apiSecret || '';
+  fromNum = cfg.fromNum || '';
 }
 function saveApiSettings(){
   const k=document.getElementById('cfgApiKey').value.trim();
@@ -323,12 +336,9 @@ function saveApiSettings(){
   const f=document.getElementById('cfgFromNum').value.trim();
   if(!k||!s||!f){ alert('API Key, Secret, 발신번호를 모두 입력해주세요.'); return; }
   apiKey=k; apiSecret=s; fromNum=f;
-  try{
-    localStorage.setItem('homsys_apiKey',k);
-    localStorage.setItem('homsys_apiSecret',s);
-    localStorage.setItem('homsys_fromNum',f);
-  }catch(e){}
-  toast('발송 설정을 저장했습니다');
+  state.smsSettings = { apiKey:k, apiSecret:s, fromNum:f };
+  saveData(true);
+  toast('발송 설정을 클라우드에 저장했습니다');
   render();
 }
 function toggleSecret(){
@@ -471,7 +481,6 @@ function render(){
   else if(state.tab==='invoice') app.innerHTML = renderInvoiceTab();
   else if(state.tab==='history') app.innerHTML = renderHistoryTab();
   else if(state.tab==='settings') app.innerHTML = renderSettingsTab();
-  saveData();
 }
 
 function toast(msg){
@@ -1077,7 +1086,7 @@ function renderSmsSettings(){
   const connected = apiKey && apiSecret && fromNum;
   return `<div class="card">
     <h2>문자발송 설정 (솔라피)</h2>
-    <p class="desc">구인문자앱에서 쓰던 것과 <b>같은</b> 솔라피 API 정보를 입력하세요. 이 브라우저에 저장되어 다음에 자동으로 불러옵니다.</p>
+    <p class="desc">구인문자앱에서 쓰던 것과 <b>같은</b> 솔라피 API 정보를 입력하세요. 클라우드에 저장되어 PC와 휴대폰에서 함께 사용됩니다.</p>
     ${connected ? `<div class="pick-summary" style="margin-top:0;">✓ 연결됨 · 발신번호 <b>${fromNum}</b></div>` : `<div class="lock-hint" style="margin-bottom:14px;">아직 발송 설정이 입력되지 않았습니다.</div>`}
     <div style="display:flex;flex-direction:column;gap:12px;max-width:420px;">
       <label class="f">API Key
@@ -1097,7 +1106,7 @@ function renderSmsSettings(){
   </div>
   <div class="card">
     <h2>데이터 저장 · 초기화</h2>
-    <p class="desc">원가·택배비·거래처·발송설정은 이 브라우저에 자동 저장되어 <b>새로고침해도 유지</b>됩니다. 아래 버튼으로 항목별로 기본값으로 되돌릴 수 있어요. (되돌리면 그 항목은 지워지니 주의)</p>
+    <p class="desc">원가·택배비·거래처·공급자·발주이력·발송설정은 Supabase 클라우드에 자동 저장되어 <b>PC와 휴대폰에 동일하게 적용</b>됩니다. 아래 버튼으로 항목별로 기본값으로 되돌릴 수 있어요. (되돌리면 그 항목은 지워지니 주의)</p>
     <div class="row" style="gap:8px;">
       <button class="btn ghost sm" onclick="resetOne('cost')">원가표만 초기화</button>
       <button class="btn ghost sm" onclick="resetOne('shipping')">택배비표만 초기화</button>
@@ -1106,25 +1115,38 @@ function renderSmsSettings(){
     </div>
   </div>`;
 }
-function resetOne(what){
+async function resetOne(what){
   const label = what==='cost'?'원가표':what==='shipping'?'택배비표':'거래처';
   if(!confirm(label+'을(를) 지우고 기본값으로 되돌립니다. 계속할까요?')) return;
-  try{
-    if(what==='cost') localStorage.removeItem('hw_costItems');
-    else if(what==='shipping') localStorage.removeItem('hw_shippingItems');
-    else if(what==='customer') localStorage.removeItem('hw_customers');
-  }catch(e){}
-  location.reload();
+
+  if(what==='cost') state.costItems = JSON.parse(JSON.stringify(DEFAULT_PERSISTED_STATE.costItems));
+  else if(what==='shipping') state.shippingItems = JSON.parse(JSON.stringify(DEFAULT_PERSISTED_STATE.shippingItems));
+  else if(what==='customer') {
+    state.customers = JSON.parse(JSON.stringify(DEFAULT_PERSISTED_STATE.customers));
+    state.orderMeta.customerId = null;
+  }
+
+  await saveCloudNow();
+  render();
+  toast(label+'을 기본값으로 되돌렸습니다');
 }
-function resetAllData(){
-  if(!confirm('원가·택배비·거래처를 모두 지우고 기본값으로 되돌립니다. 계속할까요?')) return;
-  try{
-    localStorage.removeItem('hw_costItems');
-    localStorage.removeItem('hw_shippingItems');
-    localStorage.removeItem('hw_customers');
-    localStorage.removeItem('hw_idSeq');
-  }catch(e){}
-  location.reload();
+async function resetAllData(){
+  if(!confirm('원가·택배비·거래처·공급자·발주이력·발송설정을 모두 기본값으로 되돌립니다. 계속할까요?')) return;
+
+  state.costItems = JSON.parse(JSON.stringify(DEFAULT_PERSISTED_STATE.costItems));
+  state.shippingItems = JSON.parse(JSON.stringify(DEFAULT_PERSISTED_STATE.shippingItems));
+  state.customers = JSON.parse(JSON.stringify(DEFAULT_PERSISTED_STATE.customers));
+  state.suppliers = JSON.parse(JSON.stringify(DEFAULT_PERSISTED_STATE.suppliers));
+  state.orderHistory = [];
+  state.smsSettings = { apiKey:'', apiSecret:'', fromNum:'' };
+  state._idSeq = DEFAULT_PERSISTED_STATE.idSeq;
+  state.orderMeta.customerId = null;
+  state.orderMeta.supplierId = state.suppliers[0]?.id || null;
+  loadApiSettings();
+
+  await saveCloudNow();
+  render();
+  toast('전체 데이터를 기본값으로 되돌렸습니다');
 }
 
 function renderCostSettings(){
@@ -1758,7 +1780,7 @@ function confirmImport(){
   toast('엑셀을 반영했습니다');
 }
 
-/* ===== 데이터 저장: 브라우저 백업 + Supabase 공용 동기화 ===== */
+/* ===== 데이터 저장: Supabase 단일 공용 저장소 ===== */
 function cloudPayload(){
   return {
     data_version: DATA_VERSION,
@@ -1767,7 +1789,8 @@ function cloudPayload(){
     shipping_items: state.shippingItems,
     customers: state.customers,
     suppliers: state.suppliers,
-    order_history: state.orderHistory
+    order_history: state.orderHistory,
+    sms_settings: state.smsSettings || { apiKey:'', apiSecret:'', fromNum:'' }
   };
 }
 
@@ -1778,116 +1801,114 @@ function applyCloudPayload(data){
   if(Array.isArray(data.customers)) state.customers = data.customers;
   if(Array.isArray(data.suppliers)) state.suppliers = data.suppliers;
   if(Array.isArray(data.order_history)) state.orderHistory = data.order_history;
+  if(data.sms_settings && typeof data.sms_settings === 'object') state.smsSettings = data.sms_settings;
   if(Number.isFinite(Number(data.id_seq))) state._idSeq = Number(data.id_seq);
   state.customers.forEach(migrateCustomer);
+  loadApiSettings();
   return true;
 }
 
-function saveLocalBackup(){
-  try{
-    localStorage.setItem('hw_costItems', JSON.stringify(state.costItems));
-    localStorage.setItem('hw_shippingItems', JSON.stringify(state.shippingItems));
-    localStorage.setItem('hw_customers', JSON.stringify(state.customers));
-    localStorage.setItem('hw_suppliers', JSON.stringify(state.suppliers));
-    localStorage.setItem('hw_history', JSON.stringify(state.orderHistory));
-    localStorage.setItem('hw_idSeq', String(state._idSeq));
-    localStorage.setItem('hw_dataVersion', String(DATA_VERSION));
-  }catch(e){
-    console.warn('브라우저 백업 저장 실패', e);
-  }
-}
-
 async function saveCloudNow(){
-  if(!db || cloudSaving) return;
+  if(!db){
+    alert('Supabase 연결 설정을 확인해주세요. 클라우드에 저장할 수 없습니다.');
+    return false;
+  }
+  if(cloudSaving){
+    cloudSaveQueued = true;
+    return false;
+  }
+
   cloudSaving = true;
+  cloudSaveQueued = false;
+  const updatedAt = new Date().toISOString();
   try{
     const { error } = await db
       .from('app_state')
       .upsert({
         id: CLOUD_ROW_ID,
         data: cloudPayload(),
-        updated_at: new Date().toISOString()
+        updated_at: updatedAt
       }, { onConflict: 'id' });
     if(error) throw error;
-    console.log('Supabase 저장 완료');
-  }catch(e){
-    console.error('Supabase 저장 실패:', e);
-    alert('클라우드 저장에 실패했습니다. 인터넷 연결과 Supabase 설정을 확인해주세요.');
-  }finally{
-    cloudSaving = false;
-  }
-}
-
-function saveData(){
-  saveLocalBackup();
-
-  // 입력할 때마다 서버를 과도하게 호출하지 않도록 0.7초 후 한 번만 저장
-  if(db){
-    clearTimeout(cloudSaveTimer);
-    cloudSaveTimer = setTimeout(saveCloudNow, 700);
-  }
-}
-
-function loadLocalBackup(){
-  try{
-    const ver = parseInt(localStorage.getItem('hw_dataVersion')||'1',10);
-    const c=localStorage.getItem('hw_costItems');
-    const s=localStorage.getItem('hw_shippingItems');
-    const cu=localStorage.getItem('hw_customers');
-    const sup=localStorage.getItem('hw_suppliers');
-    const seq=localStorage.getItem('hw_idSeq');
-
-    if(c && ver>=DATA_VERSION) state.costItems=JSON.parse(c);
-    if(s && ver>=DATA_VERSION) state.shippingItems=JSON.parse(s);
-    if(cu) state.customers=JSON.parse(cu);
-    if(sup) state.suppliers=JSON.parse(sup);
-
-    const hist=localStorage.getItem('hw_history');
-    if(hist) state.orderHistory=JSON.parse(hist);
-    if(seq) state._idSeq=parseInt(seq,10)||state._idSeq;
-
-    state.customers.forEach(migrateCustomer);
+    cloudLastUpdatedAt = updatedAt;
+    console.log('Supabase 저장 완료', updatedAt);
     return true;
   }catch(e){
-    console.warn('브라우저 백업 불러오기 실패', e);
+    console.error('Supabase 저장 실패:', e);
+    alert('클라우드 저장에 실패했습니다. 인터넷 연결, app_state 권한과 Supabase 설정을 확인해주세요.');
     return false;
+  }finally{
+    cloudSaving = false;
+    if(cloudSaveQueued){
+      cloudSaveQueued = false;
+      clearTimeout(cloudSaveTimer);
+      cloudSaveTimer = setTimeout(saveCloudNow, 100);
+    }
   }
+}
+
+function saveData(immediate=false){
+  if(!db) return;
+  clearTimeout(cloudSaveTimer);
+  if(immediate) saveCloudNow();
+  else cloudSaveTimer = setTimeout(saveCloudNow, 700);
 }
 
 async function loadData(){
-  // 먼저 현재 기기의 백업을 읽어서 인터넷 장애에도 사용할 수 있게 함
-  loadLocalBackup();
+  if(!db) throw new Error('Supabase 클라이언트가 생성되지 않았습니다.');
 
-  if(!db){
-    console.warn('Supabase 키가 입력되지 않아 브라우저 저장 방식으로 실행됩니다.');
-    return;
-  }
+  const { data, error } = await db
+    .from('app_state')
+    .select('data, updated_at')
+    .eq('id', CLOUD_ROW_ID)
+    .maybeSingle();
 
-  try{
-    const { data, error } = await db
-      .from('app_state')
-      .select('data')
-      .eq('id', CLOUD_ROW_ID)
-      .maybeSingle();
+  if(error) throw error;
 
-    if(error) throw error;
-
-    if(data && data.data){
-      applyCloudPayload(data.data);
-      saveLocalBackup();
-    }else{
-      // Supabase가 비어 있으면 현재 HTML/브라우저의 데이터를 최초 데이터로 올림
-      await saveCloudNow();
-    }
-  }catch(e){
-    console.error('Supabase 불러오기 실패, 브라우저 백업으로 실행:', e);
+  if(data && data.data){
+    applyCloudPayload(data.data);
+    cloudLastUpdatedAt = data.updated_at || '';
+  }else{
+    state.smsSettings = { apiKey:'', apiSecret:'', fromNum:'' };
+    await saveCloudNow();
   }
 }
 
+function startRealtimeSync(){
+  if(!db || realtimeChannel) return;
+  realtimeChannel = db
+    .channel('app-state-sync')
+    .on('postgres_changes', {
+      event: '*',
+      schema: 'public',
+      table: 'app_state',
+      filter: `id=eq.${CLOUD_ROW_ID}`
+    }, payload => {
+      const row = payload.new;
+      if(!row || !row.data) return;
+      if(row.updated_at && row.updated_at === cloudLastUpdatedAt) return;
+      cloudLastUpdatedAt = row.updated_at || '';
+      applyCloudPayload(row.data);
+      render();
+      toast('다른 기기에서 변경한 내용을 불러왔습니다');
+    })
+    .subscribe(status => console.log('실시간 동기화 상태:', status));
+}
+
 async function initializeApp(){
-  loadApiSettings();
-  await loadData();
-  render();
+  try{
+    await loadData();
+    render();
+    startRealtimeSync();
+  }catch(e){
+    console.error('Supabase 초기 불러오기 실패:', e);
+    document.getElementById('app').innerHTML = `
+      <div class="card">
+        <h2>클라우드 연결 실패</h2>
+        <p class="desc">Supabase의 app_state 테이블, RLS 정책, 인터넷 연결을 확인한 뒤 새로고침해주세요.</p>
+        <button class="btn accent" onclick="location.reload()">다시 불러오기</button>
+      </div>`;
+  }
 }
 
 initializeApp();
