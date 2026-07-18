@@ -213,3 +213,20 @@
 .call-link{display:inline-flex;align-items:center;justify-content:center;min-width:42px;height:32px;padding:0 9px;border-radius:7px;background:var(--teal);color:#fff;text-decoration:none;font-size:12px;font-weight:800;}
 .call-link:hover{filter:brightness(.94);}
 @media (max-width:640px){.call-link{min-width:48px;height:36px}.cust-top-scroll{height:20px}}
+
+
+/* v9.5 로그인·보안 */
+.auth-gate{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;background:#eef1f5;}
+.auth-gate[hidden]{display:none!important;}
+.auth-card{width:min(420px,100%);background:#fff;border:1px solid var(--line);border-radius:18px;padding:30px;box-shadow:0 18px 60px rgba(15,31,55,.16);}
+.auth-card h1{margin:0 0 8px;font-size:22px;color:var(--navy-solid);}
+.auth-card p{margin:0 0 22px;color:var(--ink-soft);font-size:14px;}
+.auth-card form{display:flex;flex-direction:column;gap:14px;}
+.auth-card label{display:flex;flex-direction:column;gap:6px;font-size:13px;font-weight:700;}
+.auth-card input{height:44px;border:1px solid var(--line);border-radius:9px;padding:0 12px;font:inherit;}
+.auth-message{min-height:20px;color:#b42318;font-size:13px;}
+.app-shell[hidden]{display:none!important;}
+.header-actions{position:absolute;right:18px;top:12px;display:flex;align-items:center;gap:8px;}
+.login-user{font-size:12px;color:#c7d1df;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.logout-btn{border:1px solid #46566d;background:transparent;color:#fff;border-radius:7px;padding:6px 10px;cursor:pointer;font-size:12px;}
+@media(max-width:700px){.login-user{display:none}.header-actions{right:8px;top:8px}.logout-btn{padding:5px 8px}}

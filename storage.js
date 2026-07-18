@@ -9,8 +9,7 @@ function cloudPayload(){
     suppliers: state.suppliers,
     order_history: state.orderHistory,
     draft_order: state.draftOrder,
-    favorite_customer_ids: state.favoriteCustomerIds || [],
-    sms_settings: state.smsSettings || { apiKey:'', apiSecret:'', fromNum:'' }
+    favorite_customer_ids: state.favoriteCustomerIds || []
   };
 }
 
@@ -23,10 +22,10 @@ function applyCloudPayload(data){
   if(Array.isArray(data.order_history)) state.orderHistory = data.order_history;
   state.draftOrder = (data.draft_order && typeof data.draft_order === 'object') ? data.draft_order : null;
   state.favoriteCustomerIds = Array.isArray(data.favorite_customer_ids) ? data.favorite_customer_ids.map(Number) : [];
-  if(data.sms_settings && typeof data.sms_settings === 'object') state.smsSettings = data.sms_settings;
   if(Number.isFinite(Number(data.id_seq))) state._idSeq = Math.max(Number(data.id_seq), 2000);
   state.customers.forEach(migrateCustomer);
   state._seedMigrationNeeded = mergeSeedData(data.data_version);
+  state.smsSettings = { apiKey:'', apiSecret:'', fromNum:'' };
   loadApiSettings();
   return true;
 }
@@ -108,7 +107,6 @@ async function loadData(){
       await saveCloudNow();
     }
   }else{
-    state.smsSettings = { apiKey:'', apiSecret:'', fromNum:'' };
     await saveCloudNow();
   }
 }
@@ -134,20 +132,61 @@ function startRealtimeSync(){
     .subscribe(status => console.log('실시간 동기화 상태:', status));
 }
 
-async function initializeApp(){
+let authBooted = false;
+
+function showLogin(message=''){
+  document.getElementById('appShell').hidden = true;
+  document.getElementById('authGate').hidden = false;
+  const msg=document.getElementById('loginMessage');
+  if(msg) msg.textContent=message;
+}
+
+function showApp(session){
+  document.getElementById('authGate').hidden = true;
+  document.getElementById('appShell').hidden = false;
+  const user=document.getElementById('loginUser');
+  if(user) user.textContent=session?.user?.email || '';
+}
+
+async function loginWithEmail(event){
+  event.preventDefault();
+  const email=document.getElementById('loginEmail').value.trim();
+  const password=document.getElementById('loginPassword').value;
+  const btn=document.getElementById('loginBtn');
+  const msg=document.getElementById('loginMessage');
+  btn.disabled=true; btn.textContent='로그인 중...'; msg.textContent='';
+  const { error } = await db.auth.signInWithPassword({ email, password });
+  if(error){ msg.textContent='로그인 실패: 이메일 또는 비밀번호를 확인하세요.'; btn.disabled=false; btn.textContent='로그인'; }
+}
+
+async function logoutApp(){
+  if(!confirm('로그아웃할까요?')) return;
+  if(realtimeChannel){ await db.removeChannel(realtimeChannel); realtimeChannel=null; }
+  await db.auth.signOut();
+}
+
+async function bootAuthorizedApp(session){
+  if(authBooted) return;
+  authBooted=true;
+  showApp(session);
   try{
     await loadData();
     render();
     startRealtimeSync();
   }catch(e){
-    console.error('Supabase 초기 불러오기 실패:', e);
-    document.getElementById('app').innerHTML = `
-      <div class="card">
-        <h2>클라우드 연결 실패</h2>
-        <p class="desc">Supabase의 app_state 테이블, RLS 정책, 인터넷 연결을 확인한 뒤 새로고침해주세요.</p>
-        <button class="btn accent" onclick="location.reload()">다시 불러오기</button>
-      </div>`;
+    console.error('보안 연결 실패:', e);
+    document.getElementById('app').innerHTML = `<div class="card"><h2>데이터 접근 실패</h2><p class="desc">로그인은 되었지만 app_state RLS 정책이 아직 설정되지 않았을 수 있습니다.</p></div>`;
   }
+}
+
+async function initializeApp(){
+  if(!db){ showLogin('Supabase 연결 설정을 확인해주세요.'); return; }
+  const { data:{ session } } = await db.auth.getSession();
+  if(session) await bootAuthorizedApp(session); else showLogin();
+  db.auth.onAuthStateChange(async (event, session)=>{
+    if(event==='SIGNED_IN' && session){ authBooted=false; await bootAuthorizedApp(session); }
+    if(event==='SIGNED_OUT'){ authBooted=false; showLogin(); }
+  });
 }
 
 initializeApp();

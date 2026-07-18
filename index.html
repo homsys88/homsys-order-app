@@ -11,15 +11,30 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
+<div id="authGate" class="auth-gate">
+  <div class="auth-card">
+    <h1>전기온수기 발주관리</h1>
+    <p>허용된 직원 계정으로 로그인하세요.</p>
+    <form id="loginForm" onsubmit="loginWithEmail(event)">
+      <label>이메일<input id="loginEmail" type="email" autocomplete="username" required></label>
+      <label>비밀번호<input id="loginPassword" type="password" autocomplete="current-password" required></label>
+      <button id="loginBtn" type="submit" class="btn accent">로그인</button>
+      <div id="loginMessage" class="auth-message"></div>
+    </form>
+  </div>
+</div>
+<div id="appShell" class="app-shell" hidden>
 <header class="app-header">
   <div class="brand-row">
     <h1>전기온수기 발주계산</h1>
-    <span class="tag">부가세 별도 기준 · v9.4 전화·스크롤·즐겨찾기</span>
+    <span class="tag">부가세 별도 기준 · v10.0 로그인완료</span>
   </div>
+  <div class="header-actions"><span id="loginUser" class="login-user"></span><button class="logout-btn" onclick="logoutApp()">로그아웃</button></div>
   <nav class="tabs" id="tabNav"></nav>
 </header>
 <main id="app"></main>
 <div id="modalRoot"></div>
+</div>
 
 <script src="app.js"></script>
 <script src="storage.js"></script>
