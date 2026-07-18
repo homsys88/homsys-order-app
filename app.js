@@ -25,7 +25,7 @@ let realtimeChannel = null;
 const BRANDS = ['귀뚜라미','경동','대성셀틱','중형'];
 const PRICE_GROUPS = { '0가':0, '1가':1000, '2가':2000, '3가':3000, '4가':4000, '5가':5000, '10가':10000 };
 const PRICE_GROUP_KEYS = Object.keys(PRICE_GROUPS);
-const DATA_VERSION = 9.3; // v9.3: 이어서 작업 UX + 즐겨찾기 거래처
+const DATA_VERSION = 9.4; // v9.4: 전화연결 + 상단 가로스크롤 + 설정 즐겨찾기
 function localTodayISO(){
   const now = new Date();
   const y = now.getFullYear();
@@ -326,6 +326,7 @@ function render(){
   else if(state.tab==='invoice') app.innerHTML = renderInvoiceTab();
   else if(state.tab==='history') app.innerHTML = renderHistoryTab();
   else if(state.tab==='settings') app.innerHTML = renderSettingsTab();
+  if(state.tab==='settings' && state.settingsSub==='customer') requestAnimationFrame(initCustomerTableScroll);
 }
 
 function toast(msg){
@@ -559,6 +560,28 @@ function toggleFavoriteCustomer(id, event){
   saveData();
   render();
   setTimeout(()=>{ const input=document.getElementById('custSearchOrder'); if(input) input.focus(); },30);
+}
+function toggleFavoriteCustomerSetting(id, event){
+  if(event){ event.preventDefault(); event.stopPropagation(); }
+  const n=Number(id);
+  if(!Array.isArray(state.favoriteCustomerIds)) state.favoriteCustomerIds=[];
+  const i=state.favoriteCustomerIds.indexOf(n);
+  if(i>=0) state.favoriteCustomerIds.splice(i,1);
+  else state.favoriteCustomerIds.unshift(n);
+  saveData();
+  const btn=event && event.currentTarget;
+  if(btn){ const on=isFavoriteCustomer(n); btn.textContent=on?'★':'☆'; btn.classList.toggle('on',on); btn.title=on?'즐겨찾기 해제':'즐겨찾기 등록'; }
+}
+function phoneHref(v){ const n=String(v||'').replace(/[^0-9+]/g,''); return n ? 'tel:'+n : ''; }
+function syncCustomerTableScroll(source, targetId){ const target=document.getElementById(targetId); if(target && Math.abs(target.scrollLeft-source.scrollLeft)>1) target.scrollLeft=source.scrollLeft; }
+function initCustomerTableScroll(){
+  const top=document.getElementById('custTopScroll');
+  const inner=document.getElementById('custTopScrollInner');
+  const bottom=document.getElementById('custTableWrap');
+  if(!top||!inner||!bottom) return;
+  const table=bottom.querySelector('table');
+  inner.style.width=Math.max(table?table.scrollWidth:0,bottom.clientWidth)+'px';
+  top.scrollLeft=bottom.scrollLeft;
 }
 function customerResultRow(c){
   const fav=isFavoriteCustomer(c.id);
@@ -1501,8 +1524,9 @@ function renderCustomerSettings(){
       </label>
       <button class="btn ghost sm" onclick="bulkChangeGroup()">${q?'검색된 곳에':'전체'} 적용</button>
     </div>
-    <div class="table-wrap"><table>
-      <thead><tr><th>거래처명</th><th>사업자번호</th><th>대표자</th><th>연락처</th><th>브랜드별 가격그룹</th><th>택배비</th><th></th></tr></thead>
+    <div id="custTopScroll" class="cust-top-scroll" onscroll="syncCustomerTableScroll(this,'custTableWrap')"><div id="custTopScrollInner" class="cust-top-scroll-inner"></div></div>
+    <div class="table-wrap" id="custTableWrap" onscroll="syncCustomerTableScroll(this,'custTopScroll')"><table>
+      <thead><tr><th class="fav-col">즐겨찾기</th><th>거래처명</th><th>사업자번호</th><th>대표자</th><th>연락처</th><th>브랜드별 가격그룹</th><th>택배비</th><th></th></tr></thead>
       <tbody id="custTbody">${buildCustSettingRows()}</tbody></table></div>
     <p class="desc" style="margin-top:10px;" id="custCount">${q?`검색결과 ${list.length}곳`:`총 ${state.customers.length}곳`}</p></div>`;
 }
@@ -1510,21 +1534,22 @@ function onCustSearch(v){
   state.custSearch=v;
   const tbody=document.getElementById('custTbody');
   if(tbody) tbody.innerHTML=buildCustSettingRows();
+  requestAnimationFrame(initCustomerTableScroll);
   const cnt=document.getElementById('custCount');
   if(cnt){ const q=(state.custSearch||'').trim(); const list=q?state.customers.filter(c=>c.name.includes(q)):state.customers; cnt.textContent=q?`검색결과 ${list.length}곳`:`총 ${state.customers.length}곳`; }
 }
 function buildCustSettingRows(){
   const q=(state.custSearch||'').trim();
   const list=q?state.customers.filter(c=>c.name.includes(q)):state.customers;
-  if(list.length===0) return `<tr><td colspan="7" class="empty">${q?'검색 결과가 없습니다.':'등록된 거래처가 없습니다.'}</td></tr>`;
-  return list.map(c=>`
-    <tr><td>${c.name}</td>
+  if(list.length===0) return `<tr><td colspan="8" class="empty">${q?'검색 결과가 없습니다.':'등록된 거래처가 없습니다.'}</td></tr>`;
+  return list.map(c=>{ const fav=isFavoriteCustomer(c.id); const href=phoneHref(c.phone); return `
+    <tr><td class="fav-col"><button type="button" class="favorite-star ${fav?'on':''}" title="${fav?'즐겨찾기 해제':'즐겨찾기 등록'}" onclick="toggleFavoriteCustomerSetting(${c.id},event)">${fav?'★':'☆'}</button></td><td>${c.name}</td>
     <td><input type="text" class="inline-phone" value="${(c.bizNo||'').replace(/"/g,'&quot;')}" placeholder="사업자번호" onchange="updateCustField(${c.id},'bizNo',this.value)"></td>
     <td><input type="text" class="inline-phone" value="${(c.representative||'').replace(/"/g,'&quot;')}" placeholder="대표자" onchange="updateCustField(${c.id},'representative',this.value)"></td>
-    <td><input type="text" class="inline-phone" value="${(c.phone||'').replace(/"/g,'&quot;')}" placeholder="010-0000-0000" onchange="updateCustPhone(${c.id},this.value)"></td>
+    <td><div class="phone-cell"><input type="text" class="inline-phone" value="${(c.phone||'').replace(/"/g,'&quot;')}" placeholder="010-0000-0000" onchange="updateCustPhone(${c.id},this.value)">${href?`<a class="call-link" href="${href}" title="${c.name}에게 전화">전화</a>`:''}</div></td>
     <td><div style="display:flex;gap:4px;flex-wrap:wrap;">${BRANDS.map(b=>`<select class="inline-sel" style="width:auto;" onchange="updateCustGroup(${c.id},'${b}',this.value)" title="${brandShort(b)}">${PRICE_GROUP_KEYS.map(g=>`<option ${(c.priceGroups&&c.priceGroups[b])===g?'selected':''}>${g}</option>`).join('')}</select>`).join('')}</div></td>
     <td><select class="inline-sel" onchange="updateCustShipVat(${c.id},this.value)"><option value="none" ${c.shipVat==='none'?'selected':''}>무료</option><option value="separate" ${c.shipVat==='separate'?'selected':''}>별도</option><option value="included" ${c.shipVat==='included'?'selected':''}>포함</option></select></td>
-    <td class="r"><button class="btn danger" onclick="removeCustomer(${c.id})">삭제</button></td></tr>`).join('');
+    <td class="r"><button class="btn danger" onclick="removeCustomer(${c.id})">삭제</button></td></tr>`; }).join('');
 }
 function updateCustField(id, field, v){ const c=state.customers.find(x=>x.id===id); if(c){ c[field]=(v||'').trim(); saveData(); } }
 function updateCustPhone(id, v){ updateCustField(id,'phone',v); }

@@ -202,3 +202,14 @@
 .cust-result-name{flex:1;min-width:0;}
 .favorite-star{border:0;background:transparent;font-size:20px;line-height:1;cursor:pointer;padding:3px 6px;color:#9aa3af;}
 .favorite-star.on{color:#e2a500;}
+
+
+/* v9.4 거래처 전화·상단 스크롤·즐겨찾기 */
+.cust-top-scroll{overflow-x:auto;overflow-y:hidden;height:17px;margin-bottom:5px;border:1px solid var(--line);border-radius:7px;background:#f6f8fa;}
+.cust-top-scroll-inner{height:1px;min-width:100%;}
+.fav-col{width:68px;text-align:center!important;}
+.phone-cell{display:flex;align-items:center;gap:6px;}
+.phone-cell .inline-phone{min-width:130px;}
+.call-link{display:inline-flex;align-items:center;justify-content:center;min-width:42px;height:32px;padding:0 9px;border-radius:7px;background:var(--teal);color:#fff;text-decoration:none;font-size:12px;font-weight:800;}
+.call-link:hover{filter:brightness(.94);}
+@media (max-width:640px){.call-link{min-width:48px;height:36px}.cust-top-scroll{height:20px}}

@@ -1,15 +1,1 @@
-홈시스 발주관리 앱 v9.3
-
-GitHub 저장소 최상위에 아래 4개 파일을 올리세요.
-- index.html
-- style.css
-- app.js
-- storage.js
-
-변경 내용
-- 임시저장 불러오기 버튼을 이어서 작업으로 변경
-- 작성 중 내용이 없으면 확인창 없이 바로 불러오기
-- 작성 중 다른 내용이 있을 때만 확인창 표시
-- 거래처 검색 결과의 별표로 즐겨찾기 등록/해제
-- 검색어가 없을 때 즐겨찾기 거래처를 먼저 표시
-- 즐겨찾기는 Supabase에 저장되어 PC와 휴대폰에서 공유
+v9.4: index.html, style.css, app.js, storage.js 네 파일을 GitHub 저장소 최상위에 업로드 후 Commit changes 하세요.
