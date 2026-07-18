@@ -851,7 +851,7 @@ function renderHistoryTab(){
       <label class="f">종료일<input type="date" value="${f.to||''}" onchange="setHistoryFilter('to',this.value)"></label>
       <label class="f history-customer-filter">거래처명
         <div class="history-customer-search-wrap">
-          <input id="historyCustomerInput" type="text" placeholder="거래처명 일부" value="${String(f.customer||'').replace(/"/g,'&quot;')}" oninput="onHistoryCustomerInput(this.value)" onfocus="showHistoryCustomerSuggestions()" autocomplete="off">
+          <input id="historyCustomerInput" type="text" placeholder="거래처명 일부" value="${String(f.customer||'').replace(/"/g,'&quot;')}" oninput="onHistoryCustomerInput(this.value)" onfocus="showHistoryCustomerSuggestions()" onkeydown="onHistoryCustomerKeydown(event)" onblur="setTimeout(closeHistoryCustomerSuggestions,150)" autocomplete="off">
           <div id="historyCustomerSuggestions" class="history-customer-suggestions"></div>
         </div>
       </label>
@@ -885,13 +885,31 @@ function historyCustomerCandidates(query=''){
   }
   return names.filter(name=>!q || name.toLowerCase().includes(q)).slice(0,12);
 }
+let historySuggestionIndex = -1;
+function positionHistoryCustomerSuggestions(){
+  const input=document.getElementById('historyCustomerInput');
+  const box=document.getElementById('historyCustomerSuggestions');
+  if(!input || !box) return;
+  const r=input.getBoundingClientRect();
+  box.style.left=`${Math.round(r.left)}px`;
+  box.style.top=`${Math.round(r.bottom+5)}px`;
+  box.style.width=`${Math.round(r.width)}px`;
+}
 function renderHistoryCustomerSuggestions(query){
   const box=document.getElementById('historyCustomerSuggestions');
   if(!box) return;
-  const list=historyCustomerCandidates(query);
-  if(!String(query||'').trim() || !list.length){ box.innerHTML=''; box.classList.remove('show'); return; }
-  box.innerHTML=list.map(name=>`<button type="button" onclick="selectHistoryCustomer(${JSON.stringify(name).replace(/</g,'\u003c')})">${escapeHtml(name)}</button>`).join('');
+  const q=String(query||'').trim();
+  const list=historyCustomerCandidates(q);
+  if(!q || !list.length){ closeHistoryCustomerSuggestions(); return; }
+  historySuggestionIndex=-1;
+  box.innerHTML=list.map((name,i)=>`<button type="button" data-index="${i}" onmousedown="event.preventDefault();selectHistoryCustomer(${JSON.stringify(name).replace(/</g,'\u003c')})">${escapeHtml(name)}</button>`).join('');
+  positionHistoryCustomerSuggestions();
   box.classList.add('show');
+}
+function closeHistoryCustomerSuggestions(){
+  const box=document.getElementById('historyCustomerSuggestions');
+  if(box){ box.innerHTML=''; box.classList.remove('show'); }
+  historySuggestionIndex=-1;
 }
 function onHistoryCustomerInput(value){
   setHistoryFilter('customer',value);
@@ -901,12 +919,36 @@ function showHistoryCustomerSuggestions(){
   const input=document.getElementById('historyCustomerInput');
   if(input) renderHistoryCustomerSuggestions(input.value);
 }
+function onHistoryCustomerKeydown(event){
+  const box=document.getElementById('historyCustomerSuggestions');
+  if(!box || !box.classList.contains('show')){
+    if(event.key==='ArrowDown') showHistoryCustomerSuggestions();
+    return;
+  }
+  const buttons=[...box.querySelectorAll('button')];
+  if(!buttons.length) return;
+  if(event.key==='ArrowDown'){
+    event.preventDefault();
+    historySuggestionIndex=(historySuggestionIndex+1)%buttons.length;
+  }else if(event.key==='ArrowUp'){
+    event.preventDefault();
+    historySuggestionIndex=(historySuggestionIndex-1+buttons.length)%buttons.length;
+  }else if(event.key==='Enter' && historySuggestionIndex>=0){
+    event.preventDefault();
+    buttons[historySuggestionIndex].dispatchEvent(new MouseEvent('mousedown',{bubbles:true}));
+    return;
+  }else if(event.key==='Escape'){
+    closeHistoryCustomerSuggestions();
+    return;
+  }else return;
+  buttons.forEach((b,i)=>b.classList.toggle('active',i===historySuggestionIndex));
+  buttons[historySuggestionIndex].scrollIntoView({block:'nearest'});
+}
 function selectHistoryCustomer(name){
   const input=document.getElementById('historyCustomerInput');
   if(input) input.value=name;
   setHistoryFilter('customer',name);
-  const box=document.getElementById('historyCustomerSuggestions');
-  if(box){ box.innerHTML=''; box.classList.remove('show'); }
+  closeHistoryCustomerSuggestions();
 }
 
 function setHistoryFilter(key,value){
@@ -1846,3 +1888,6 @@ function confirmImport(){
   render();
   toast('엑셀을 반영했습니다');
 }
+
+window.addEventListener('resize',()=>{ const b=document.getElementById('historyCustomerSuggestions'); if(b&&b.classList.contains('show')) positionHistoryCustomerSuggestions(); });
+window.addEventListener('scroll',()=>{ const b=document.getElementById('historyCustomerSuggestions'); if(b&&b.classList.contains('show')) positionHistoryCustomerSuggestions(); }, true);
