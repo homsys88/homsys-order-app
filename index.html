@@ -1529,9 +1529,14 @@ function addCustomer(){
   if(state.customers.some(c=>c.name===name)){ alert('이미 등록된 거래처입니다.'); return; }
   const phone=document.getElementById('newCustPhone').value.trim();
   state.customers.push({id:nextId(), name, phone, priceGroups:makePriceGroups(document.getElementById('newCustGroup').value), shipVat:document.getElementById('newCustShipVat').value});
+  saveData();
   render();
 }
-function removeCustomer(id){ state.customers=state.customers.filter(c=>c.id!==id); render(); }
+function removeCustomer(id){
+  state.customers=state.customers.filter(c=>c.id!==id);
+  saveData();
+  render();
+}
 
 /* 거래처 엑셀 업로드 (D열 = 거래처명) */
 function handleCustExcel(evt){ const f=evt.target.files[0]; if(f) processCustFile(f); evt.target.value=''; }
@@ -1654,7 +1659,11 @@ function confirmCustImport(){
   const existing=new Set(state.customers.map(c=>c.name));
   let added=0;
   names.forEach(n=>{ if(!existing.has(n)){ state.customers.push({id:nextId(), name:n, priceGroups:makePriceGroups(g), shipVat:'included'}); existing.add(n); added++; } });
-  state.pendingCustImport=null; closeModal(); render(); toast(added+'곳을 추가했습니다');
+  state.pendingCustImport=null;
+  saveData();
+  closeModal();
+  render();
+  toast(added+'곳을 추가했습니다');
 }
 
 /* =================== 엑셀 업로드 =================== */
@@ -1742,7 +1751,11 @@ function confirmImport(){
       if(ex) ex.fee=r.fee; else state.shippingItems.push({id:nextId(),brand,model:r.model,fee:r.fee});
     }
   });
-  state.pendingImport=null; closeModal(); render(); toast('엑셀을 반영했습니다');
+  state.pendingImport=null;
+  saveData();
+  closeModal();
+  render();
+  toast('엑셀을 반영했습니다');
 }
 
 /* ===== 데이터 저장: 브라우저 백업 + Supabase 공용 동기화 ===== */
@@ -1796,8 +1809,10 @@ async function saveCloudNow(){
         updated_at: new Date().toISOString()
       }, { onConflict: 'id' });
     if(error) throw error;
+    console.log('Supabase 저장 완료');
   }catch(e){
     console.error('Supabase 저장 실패:', e);
+    alert('클라우드 저장에 실패했습니다. 인터넷 연결과 Supabase 설정을 확인해주세요.');
   }finally{
     cloudSaving = false;
   }
