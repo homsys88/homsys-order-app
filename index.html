@@ -7,6 +7,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
   :root{
     --bg:#EEF1F5; --surface:#FFFFFF; --ink:#1A2432; --ink-soft:#5B6472;
@@ -214,6 +215,27 @@
 <div id="modalRoot"></div>
 
 <script>
+/* ===== Supabase 연결 설정 =====
+   1) SUPABASE_URL은 현재 프로젝트 주소입니다.
+   2) SUPABASE_ANON_KEY에는 Supabase의 Publishable/anon key를 넣으세요.
+   주의: service_role 또는 secret key는 절대 여기에 넣지 마세요.
+*/
+const SUPABASE_URL = 'https://whedhpxnrbftsheokmtz.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_EwiqNJQ7atTAnmUEG_Un8Q_d6unValm';
+const CLOUD_ROW_ID = 1;
+
+const supabaseEnabled =
+  typeof window.supabase !== 'undefined' &&
+  SUPABASE_ANON_KEY &&
+  !SUPABASE_ANON_KEY.includes('여기에_');
+
+const db = supabaseEnabled
+  ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+  : null;
+
+let cloudSaveTimer = null;
+let cloudSaving = false;
+
 const BRANDS = ['귀뚜라미','경동','대성셀틱','중형'];
 const PRICE_GROUPS = { '0가':0, '1가':1000, '2가':2000, '3가':3000, '4가':4000, '5가':5000, '10가':10000 };
 const PRICE_GROUP_KEYS = Object.keys(PRICE_GROUPS);
@@ -1723,8 +1745,32 @@ function confirmImport(){
   state.pendingImport=null; closeModal(); render(); toast('엑셀을 반영했습니다');
 }
 
-/* ===== 데이터 영구 저장 (이 브라우저에 기억) ===== */
-function saveData(){
+/* ===== 데이터 저장: 브라우저 백업 + Supabase 공용 동기화 ===== */
+function cloudPayload(){
+  return {
+    data_version: DATA_VERSION,
+    id_seq: state._idSeq,
+    cost_items: state.costItems,
+    shipping_items: state.shippingItems,
+    customers: state.customers,
+    suppliers: state.suppliers,
+    order_history: state.orderHistory
+  };
+}
+
+function applyCloudPayload(data){
+  if(!data || typeof data !== 'object') return false;
+  if(Array.isArray(data.cost_items)) state.costItems = data.cost_items;
+  if(Array.isArray(data.shipping_items)) state.shippingItems = data.shipping_items;
+  if(Array.isArray(data.customers)) state.customers = data.customers;
+  if(Array.isArray(data.suppliers)) state.suppliers = data.suppliers;
+  if(Array.isArray(data.order_history)) state.orderHistory = data.order_history;
+  if(Number.isFinite(Number(data.id_seq))) state._idSeq = Number(data.id_seq);
+  state.customers.forEach(migrateCustomer);
+  return true;
+}
+
+function saveLocalBackup(){
   try{
     localStorage.setItem('hw_costItems', JSON.stringify(state.costItems));
     localStorage.setItem('hw_shippingItems', JSON.stringify(state.shippingItems));
@@ -1733,9 +1779,41 @@ function saveData(){
     localStorage.setItem('hw_history', JSON.stringify(state.orderHistory));
     localStorage.setItem('hw_idSeq', String(state._idSeq));
     localStorage.setItem('hw_dataVersion', String(DATA_VERSION));
-  }catch(e){}
+  }catch(e){
+    console.warn('브라우저 백업 저장 실패', e);
+  }
 }
-function loadData(){
+
+async function saveCloudNow(){
+  if(!db || cloudSaving) return;
+  cloudSaving = true;
+  try{
+    const { error } = await db
+      .from('app_state')
+      .upsert({
+        id: CLOUD_ROW_ID,
+        data: cloudPayload(),
+        updated_at: new Date().toISOString()
+      }, { onConflict: 'id' });
+    if(error) throw error;
+  }catch(e){
+    console.error('Supabase 저장 실패:', e);
+  }finally{
+    cloudSaving = false;
+  }
+}
+
+function saveData(){
+  saveLocalBackup();
+
+  // 입력할 때마다 서버를 과도하게 호출하지 않도록 0.7초 후 한 번만 저장
+  if(db){
+    clearTimeout(cloudSaveTimer);
+    cloudSaveTimer = setTimeout(saveCloudNow, 700);
+  }
+}
+
+function loadLocalBackup(){
   try{
     const ver = parseInt(localStorage.getItem('hw_dataVersion')||'1',10);
     const c=localStorage.getItem('hw_costItems');
@@ -1743,21 +1821,61 @@ function loadData(){
     const cu=localStorage.getItem('hw_customers');
     const sup=localStorage.getItem('hw_suppliers');
     const seq=localStorage.getItem('hw_idSeq');
-    // 원가·택배비표: 데이터 버전이 낮으면(구 브랜드 구조) 브라우저에 저장된 값 대신 앱에 내장된 새 엑셀 값을 사용
+
     if(c && ver>=DATA_VERSION) state.costItems=JSON.parse(c);
     if(s && ver>=DATA_VERSION) state.shippingItems=JSON.parse(s);
     if(cu) state.customers=JSON.parse(cu);
     if(sup) state.suppliers=JSON.parse(sup);
+
     const hist=localStorage.getItem('hw_history');
     if(hist) state.orderHistory=JSON.parse(hist);
     if(seq) state._idSeq=parseInt(seq,10)||state._idSeq;
+
     state.customers.forEach(migrateCustomer);
-  }catch(e){}
+    return true;
+  }catch(e){
+    console.warn('브라우저 백업 불러오기 실패', e);
+    return false;
+  }
 }
 
-loadData();
-loadApiSettings();
-render();
+async function loadData(){
+  // 먼저 현재 기기의 백업을 읽어서 인터넷 장애에도 사용할 수 있게 함
+  loadLocalBackup();
+
+  if(!db){
+    console.warn('Supabase 키가 입력되지 않아 브라우저 저장 방식으로 실행됩니다.');
+    return;
+  }
+
+  try{
+    const { data, error } = await db
+      .from('app_state')
+      .select('data')
+      .eq('id', CLOUD_ROW_ID)
+      .maybeSingle();
+
+    if(error) throw error;
+
+    if(data && data.data){
+      applyCloudPayload(data.data);
+      saveLocalBackup();
+    }else{
+      // Supabase가 비어 있으면 현재 HTML/브라우저의 데이터를 최초 데이터로 올림
+      await saveCloudNow();
+    }
+  }catch(e){
+    console.error('Supabase 불러오기 실패, 브라우저 백업으로 실행:', e);
+  }
+}
+
+async function initializeApp(){
+  loadApiSettings();
+  await loadData();
+  render();
+}
+
+initializeApp();
 </script>
 </body>
 </html>
