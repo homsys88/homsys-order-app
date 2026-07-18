@@ -1,0 +1,1763 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>전기온수기 발주계산</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#EEF1F5; --surface:#FFFFFF; --ink:#1A2432; --ink-soft:#5B6472;
+    --line:#DCE1E8; --accent:#B5541A; --accent-ink:#7A3812; --accent-soft:#F6E5D9;
+    --teal:#2F6F5E; --teal-soft:#DEEBE7; --danger:#B23A2E; --navy:#16203285; --navy-solid:#162032;
+    --radius:12px;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic","Segoe UI",sans-serif;
+    -webkit-font-smoothing:antialiased;}
+  .num{font-variant-numeric:tabular-nums;}
+  header.app-header{background:var(--navy-solid);color:#fff;padding:16px 18px 0;position:sticky;top:0;z-index:20;}
+  .brand-row{display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap;}
+  .brand-row h1{font-size:17px;margin:0;font-weight:700;letter-spacing:-0.2px;}
+  .brand-row .tag{font-size:11px;color:#AEB9CB;border:1px solid #33415A;padding:2px 8px;border-radius:20px;}
+  nav.tabs{display:flex;gap:2px;}
+  nav.tabs button{background:transparent;border:none;color:#93A0B4;padding:10px 16px;font-size:14px;
+    font-weight:700;cursor:pointer;white-space:nowrap;border-bottom:2px solid transparent;}
+  nav.tabs button.active{color:#fff;border-bottom:2px solid var(--accent);}
+  main{max-width:900px;margin:0 auto;padding:18px 14px 70px;}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:18px;margin-bottom:16px;}
+  .card.locked{opacity:.5;pointer-events:none;position:relative;}
+  .card.locked::after{content:"🔒";position:absolute;top:14px;right:16px;font-size:16px;}
+  .lock-hint{font-size:12.5px;color:var(--ink-soft);background:#F6F8FA;border:1px dashed var(--line);
+    border-radius:8px;padding:12px 14px;text-align:center;}
+  .card h2{font-size:15px;margin:0 0 4px;font-weight:700;}
+  .card .desc{font-size:12.5px;color:var(--ink-soft);margin:0 0 14px;line-height:1.55;}
+  .step-badge{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;
+    background:var(--accent);color:#fff;border-radius:50%;font-size:12px;font-weight:800;margin-right:8px;}
+  .step-head{display:flex;align-items:center;margin:0 0 12px;font-size:14px;font-weight:800;}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;}
+  .row-2col{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:end;}
+  .row-3col{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;align-items:end;}
+  .row-2col label.f,.row-3col label.f{min-width:0;}
+  .row-2col label.f select,.row-2col label.f input,.row-3col label.f select,.row-3col label.f input{width:100%;}
+  .brand-chips-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;}
+  .brand-chips-grid .brand-chip{width:100%;text-align:center;padding:9px 6px;}
+  .brand-price-row{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;}
+  .brand-price-col{display:flex;flex-direction:column;gap:4px;min-width:0;}
+  .brand-price-col .brand-chip{width:100%;text-align:center;padding:8px 2px;font-size:12.5px;}
+  .brand-price-col select{width:100%;padding:5px 16px 5px 4px;font-size:12.5px;text-align:center;background-position:right 3px center;}
+  @media (max-width:380px){ .brand-price-row{grid-template-columns:repeat(2,1fr);row-gap:8px;} }
+  .date-compact-wrap{position:relative;height:37px;}
+  .date-compact-text{display:flex;align-items:center;justify-content:center;height:100%;border:1px solid var(--line);
+    border-radius:8px;background:#fff;font-size:14px;color:var(--ink);font-weight:700;}
+  .date-compact-wrap input[type="date"]{position:absolute;inset:0;opacity:0;width:100%;height:100%;cursor:pointer;}
+  button.btn.btn-x{padding:5px 9px;font-size:14px;font-weight:800;line-height:1;}
+  @media (max-width:640px){
+    table.order-lines-table{min-width:0;width:100%;}
+    table.order-lines-table th.col-brand,table.order-lines-table td.col-brand{display:none;}
+    table.order-lines-table th,table.order-lines-table td{padding:8px 6px;white-space:normal;}
+    table.order-lines-table th:first-child,table.order-lines-table td:first-child{white-space:normal;word-break:break-word;}
+  }
+  @media (max-width:640px){
+    table.invoice-table td.col-model,table.invoice-table th:first-child{white-space:normal;word-break:break-word;max-width:120px;}
+  }
+  label.f{display:flex;flex-direction:column;gap:5px;font-size:12px;color:var(--ink-soft);font-weight:700;}
+  input,select{border:1px solid var(--line);border-radius:8px;padding:9px 10px;font-size:14px;
+    color:var(--ink);background:#fff;font-family:inherit;}
+  select{-webkit-appearance:none;-moz-appearance:none;appearance:none;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%235B6472' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>");
+    background-repeat:no-repeat;background-position:right 10px center;padding-right:32px;cursor:pointer;}
+  input:focus,select:focus{outline:2px solid var(--accent-soft);border-color:var(--accent);}
+  input.inline-num{width:104px;text-align:right;padding:6px 8px;font-variant-numeric:tabular-nums;}
+  input.inline-model{width:180px;padding:6px 8px;font-size:13px;font-weight:600;}
+  .drop-box{width:100%;border:2px dashed var(--line);border-radius:12px;padding:22px 16px;text-align:center;
+    font-size:13.5px;color:var(--ink-soft);cursor:pointer;background:#FAFBFC;transition:.15s;line-height:1.6;}
+  .drop-box:hover{border-color:var(--accent);background:#FFF8F3;}
+  .drop-box.drag-on{border-color:var(--accent);background:#FFF3EA;box-shadow:0 0 0 3px var(--accent-soft);}
+  .drop-box b{color:var(--ink);}
+  .drop-sub{font-size:11.5px;color:var(--ink-soft);}
+  .cust-results{position:absolute;top:100%;left:0;right:0;z-index:30;background:#fff;border:1px solid var(--line);
+    border-radius:8px;margin-top:4px;max-height:260px;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,.12);}
+  .cust-results:empty{display:none;}
+  .cust-result-item{padding:10px 12px;font-size:13.5px;cursor:pointer;border-bottom:1px solid var(--line);}
+  .cust-result-item:last-child{border-bottom:none;}
+  .cust-result-item:hover{background:#FFF8F3;}
+  .cust-result-item.muted{color:var(--ink-soft);cursor:default;}
+  .cust-picked{display:flex;align-items:center;justify-content:space-between;gap:10px;background:#FFF8F3;
+    border:1.5px solid var(--accent);border-radius:8px;padding:9px 12px;font-size:14px;font-weight:700;color:var(--accent-ink);}
+  select.inline-sel{padding:5px 26px 5px 8px;font-size:13px;background-position:right 6px center;}
+  input.inline-phone{width:130px;padding:6px 8px;font-size:13px;font-variant-numeric:tabular-nums;}
+  .send-mode{display:flex;gap:8px;}
+  .mode-btn{flex:1;background:#fff;border:1.5px solid var(--line);border-radius:9px;padding:11px 10px;
+    font-size:13px;font-weight:700;cursor:pointer;color:var(--ink-soft);transition:.12s;}
+  .mode-btn.on{border-color:var(--accent);background:#FFF8F3;color:var(--accent-ink);box-shadow:0 0 0 2px var(--accent-soft);}
+  .mode-btn .muted{font-weight:400;font-size:11px;}
+  .pay-box{margin-top:16px;border:1.5px solid var(--navy-solid);border-radius:8px;padding:14px 16px;background:#F7F9FB;}
+  .pay-title{font-size:11.5px;font-weight:800;color:var(--ink-soft);letter-spacing:.5px;margin-bottom:6px;}
+  .pay-line{font-size:16px;color:var(--ink);}
+  .pay-line b{font-variant-numeric:tabular-nums;}
+  .pay-sub{font-size:12px;color:var(--ink-soft);margin-top:4px;}
+  .sup-card{border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-bottom:12px;background:#FAFBFC;}
+  .sup-name{font-size:14px;font-weight:800;margin-bottom:10px;color:var(--accent-ink);}
+  .sup-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  .sup-grid label.f input{width:100%;}
+  @media (max-width:640px){ .sup-grid{grid-template-columns:1fr;} }
+  .qty-wrap{display:flex;align-items:stretch;}
+  .qty-input{width:64px;text-align:center;border-top-right-radius:0;border-bottom-right-radius:0;border-right:none;}
+  .qty-select{width:46px;border-top-left-radius:0;border-bottom-left-radius:0;padding-left:6px;padding-right:22px;
+    background-position:right 6px center;background-color:#F6F8FA;}
+  button.btn{background:var(--navy-solid);color:#fff;border:none;border-radius:8px;padding:10px 16px;
+    font-size:13.5px;font-weight:700;cursor:pointer;}
+  button.btn.accent{background:var(--accent);}
+  button.btn.big{padding:14px 20px;font-size:15px;width:100%;}
+  button.btn.ghost{background:#fff;color:var(--navy-solid);border:1px solid var(--line);}
+  button.btn.danger{background:#fff;color:var(--danger);border:1px solid #E9C7C1;padding:5px 10px;font-size:12px;}
+  button.btn.sm{padding:6px 11px;font-size:12px;}
+  button.btn:disabled{opacity:.4;cursor:not-allowed;}
+  .table-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:8px;}
+  table{border-collapse:collapse;width:100%;min-width:520px;font-size:13px;}
+  th,td{padding:9px 10px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap;}
+  th{background:#F6F8FA;color:var(--ink-soft);font-weight:700;font-size:11.5px;letter-spacing:.3px;}
+  tr:last-child td{border-bottom:none;}
+  td.r,th.r{text-align:right;}
+  .pill{display:inline-block;padding:2px 9px;border-radius:20px;font-size:11.5px;font-weight:700;}
+  .pill.guttu{background:#E4ECFB;color:#1E4C9B;}
+  .pill.kd{background:var(--teal-soft);color:var(--teal);}
+  .pill.ds{background:var(--accent-soft);color:var(--accent-ink);}
+  .pill.rn{background:#EAE2F5;color:#5B3A8C;}
+  .empty{padding:26px;text-align:center;color:var(--ink-soft);font-size:13px;}
+  .section-title{font-size:11.5px;font-weight:800;color:var(--ink-soft);letter-spacing:.4px;margin:0 0 9px;}
+  /* 브랜드 칩 */
+  .brand-chips{display:flex;flex-wrap:wrap;gap:8px;}
+  .brand-chip{background:#fff;border:1.5px solid var(--line);border-radius:9px;padding:8px 9px;cursor:pointer;transition:.12s;}
+  .brand-chip.on{border-color:var(--accent);background:#FFF8F3;box-shadow:0 0 0 2px var(--accent-soft);}
+  .brand-chip:hover{border-color:var(--accent);}
+  /* 모델 리스트 */
+  .model-list{display:flex;flex-direction:column;gap:6px;max-height:420px;overflow-y:auto;
+    border:1px solid var(--line);border-radius:9px;padding:8px;background:#FAFBFC;}
+  .model-chip{display:flex;justify-content:space-between;align-items:center;gap:10px;background:#fff;
+    border:1.5px solid var(--line);border-radius:8px;padding:10px 12px;cursor:pointer;text-align:left;transition:.12s;}
+  .model-chip:hover{border-color:var(--accent);}
+  .model-chip.on{border-color:var(--accent);background:#FFF3EA;box-shadow:0 0 0 2px var(--accent-soft);}
+  .mc-check{flex-shrink:0;width:22px;height:22px;border-radius:50%;border:2px solid var(--line);
+    display:inline-flex;align-items:center;justify-content:center;font-size:13px;font-weight:900;color:#fff;background:#fff;transition:.12s;}
+  .model-chip.on .mc-check{background:var(--accent);border-color:var(--accent);}
+  .mc-name{flex:1;font-size:13.5px;font-weight:700;color:var(--ink);}
+  .model-chip.on .mc-name{color:var(--accent-ink);}
+  .mc-cost{font-size:12px;color:var(--ink-soft);font-variant-numeric:tabular-nums;}
+  /* 선택 시 인라인 수량+담기 */
+  .model-chip.selected-inline{flex-direction:column;align-items:stretch;gap:8px;padding:10px 12px;}
+  .mc-row{display:flex;align-items:center;gap:8px;cursor:pointer;}
+  .mc-actions{display:flex;align-items:center;gap:8px;}
+  .qty-stepper{display:flex;align-items:center;border:1.5px solid var(--accent);border-radius:10px;overflow:hidden;flex-shrink:0;}
+  .qty-stepper .qbtn{width:44px;height:44px;border:none;background:#fff;font-size:20px;font-weight:700;color:var(--accent-ink);cursor:pointer;line-height:1;}
+  .qty-stepper .qbtn:active{background:var(--accent-soft);}
+  .qty-stepper .qval{min-width:42px;text-align:center;font-size:17px;font-weight:800;font-variant-numeric:tabular-nums;}
+  .model-chip .addbtn{flex:1;height:44px;font-size:15px;}
+  @media (min-width:641px){
+    .model-chip.selected-inline{flex-direction:row;align-items:center;gap:12px;}
+    .mc-row{flex:1;}
+    .model-chip .addbtn{flex:0 0 auto;min-width:120px;}
+  }
+  .line-qty-stepper{display:inline-flex;align-items:center;border:1.5px solid var(--line);border-radius:8px;overflow:hidden;}
+  .line-qty-stepper .lqbtn{width:34px;height:34px;border:none;background:#F6F8FA;font-size:17px;font-weight:700;color:var(--accent-ink);cursor:pointer;line-height:1;}
+  .line-qty-stepper .lqbtn:active{background:var(--accent-soft);}
+  .line-qty-stepper .lqval{min-width:38px;text-align:center;font-size:15px;font-weight:800;font-variant-numeric:tabular-nums;}
+  .model-group-label{padding:6px 2px 2px;}
+  .model-empty{padding:24px;text-align:center;color:var(--ink-soft);font-size:13px;}
+  /* 선택 요약 배너 */
+  .pick-summary{background:#FFF8F3;border:1px solid var(--accent-soft);border-radius:10px;
+    padding:12px 14px;margin:14px 0;font-size:13px;line-height:1.6;}
+  .pick-summary b{color:var(--accent-ink);}
+  .pick-summary .muted{color:var(--ink-soft);}
+  /* 거래명세표 */
+  .invoice{border:2px solid var(--navy-solid);border-radius:6px;padding:24px;background:#fff;}
+  .invoice-head{display:flex;justify-content:space-between;align-items:flex-start;
+    border-bottom:2px solid var(--navy-solid);padding-bottom:14px;margin-bottom:14px;flex-wrap:wrap;gap:10px;}
+  .invoice-head h2{margin:0;font-size:20px;letter-spacing:4px;}
+  .invoice-head .meta{font-size:12px;color:var(--ink-soft);text-align:right;line-height:1.7;}
+  .invoice-meta-row{display:flex;justify-content:space-between;font-size:13px;margin-bottom:12px;flex-wrap:wrap;gap:6px;}
+  .totals{margin-top:14px;border-top:1px solid var(--line);padding-top:10px;}
+  .totals .line{display:flex;justify-content:space-between;font-size:13.5px;padding:4px 0;}
+  .totals .line.grand{font-size:17px;font-weight:800;border-top:2px solid var(--navy-solid);margin-top:6px;padding-top:10px;}
+  .badge-vat{font-size:10.5px;padding:1px 7px;border-radius:20px;background:#EEF1F5;color:var(--ink-soft);margin-left:6px;}
+  .modal-bg{position:fixed;inset:0;background:rgba(15,20,30,.55);display:flex;align-items:center;justify-content:center;z-index:100;padding:16px;}
+  .modal{background:#fff;border-radius:14px;max-width:640px;width:100%;max-height:82vh;overflow-y:auto;padding:22px;}
+  .modal h3{margin:0 0 6px;font-size:16px;}
+  .modal p{font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;line-height:1.55;}
+  .modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:14px;}
+  .settings-sub{display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap;}
+  .settings-sub button{background:#fff;border:1px solid var(--line);border-radius:20px;padding:7px 15px;
+    font-size:13px;font-weight:700;color:var(--ink-soft);cursor:pointer;}
+  .settings-sub button.on{background:var(--navy-solid);color:#fff;border-color:var(--navy-solid);}
+  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--navy-solid);color:#fff;
+    padding:12px 20px;border-radius:24px;font-size:13.5px;font-weight:600;z-index:200;box-shadow:0 6px 20px rgba(0,0,0,.25);}
+  @media (max-width:640px){
+    .brand-row h1{font-size:15px;}
+    .invoice{padding:16px;}
+    nav.tabs button{padding:10px 12px;font-size:13px;}
+  }
+</style>
+</head>
+<body>
+<header class="app-header">
+  <div class="brand-row">
+    <h1>전기온수기 발주계산</h1>
+    <span class="tag">부가세 별도 기준 · v5 레이아웃보정</span>
+  </div>
+  <nav class="tabs" id="tabNav"></nav>
+</header>
+<main id="app"></main>
+<div id="modalRoot"></div>
+
+<script>
+const BRANDS = ['귀뚜라미','경동','대성셀틱','중형'];
+const PRICE_GROUPS = { '0가':0, '1가':1000, '2가':2000, '3가':3000, '4가':4000, '5가':5000, '10가':10000 };
+const PRICE_GROUP_KEYS = Object.keys(PRICE_GROUPS);
+const DATA_VERSION = 2; // v2: 중형 브랜드 분리 + 4가 추가 + 거래처 브랜드별 가격그룹
+
+let state = {
+  tab: 'order',
+  settingsSub: 'cost',
+  costItems: [{"id": 1, "brand": "귀뚜라미", "gubun": "법랑", "model": "G15", "cost": 76000, "prices": {"0가": 76000, "1가": 77000, "2가": 78000, "3가": 79000, "4가": 80000, "5가": 81000, "10가": 86000}}, {"id": 2, "brand": "귀뚜라미", "gubun": "법랑", "model": "G15U(상향)", "cost": 76000, "prices": {"0가": 76000, "1가": 77000, "2가": 78000, "3가": 79000, "4가": 80000, "5가": 81000, "10가": 86000}}, {"id": 3, "brand": "귀뚜라미", "gubun": "법랑", "model": "G30", "cost": 91000, "prices": {"0가": 91000, "1가": 92000, "2가": 93000, "3가": 94000, "4가": 95000, "5가": 96000, "10가": 101000}}, {"id": 4, "brand": "귀뚜라미", "gubun": "법랑", "model": "G30U(상향)", "cost": 91000, "prices": {"0가": 91000, "1가": 92000, "2가": 93000, "3가": 94000, "4가": 95000, "5가": 96000, "10가": 101000}}, {"id": 5, "brand": "귀뚜라미", "gubun": "법랑", "model": "G50(세로)", "cost": 111000, "prices": {"0가": 111000, "1가": 112000, "2가": 113000, "3가": 114000, "4가": 115000, "5가": 116000, "10가": 121000}}, {"id": 6, "brand": "귀뚜라미", "gubun": "법랑", "model": "G50H(가로)", "cost": 111000, "prices": {"0가": 111000, "1가": 112000, "2가": 113000, "3가": 114000, "4가": 115000, "5가": 116000, "10가": 121000}}, {"id": 7, "brand": "귀뚜라미", "gubun": "법랑", "model": "KDEWPLUS-50B(바닥)", "cost": 111000, "prices": {"0가": 111000, "1가": 112000, "2가": 113000, "3가": 114000, "4가": 115000, "5가": 116000, "10가": 121000}}, {"id": 8, "brand": "귀뚜라미", "gubun": "법랑", "model": "G80H(가로)", "cost": 151000, "prices": {"0가": 151000, "1가": 152000, "2가": 153000, "3가": 154000, "4가": 155000, "5가": 156000, "10가": 161000}}, {"id": 9, "brand": "귀뚜라미", "gubun": "법랑", "model": "G100H(가로)", "cost": 181000, "prices": {"0가": 181000, "1가": 182000, "2가": 183000, "3가": 184000, "4가": 185000, "5가": 186000, "10가": 191000}}, {"id": 10, "brand": "귀뚜라미", "gubun": "법랑", "model": "KDEWPLUS-100U(바닥)", "cost": 201000, "prices": {"0가": 201000, "1가": 202000, "2가": 203000, "3가": 204000, "4가": 205000, "5가": 206000, "10가": 211000}}, {"id": 11, "brand": "귀뚜라미", "gubun": "법랑", "model": "W15E(가로)", "cost": 63000, "prices": {"0가": 63000, "1가": 64000, "2가": 65000, "3가": 66000, "4가": 67000, "5가": 68000, "10가": 73000}}, {"id": 12, "brand": "귀뚜라미", "gubun": "스텐", "model": "W-15S", "cost": 90000, "prices": {"0가": 90000, "1가": 91000, "2가": 92000, "3가": 93000, "4가": 94000, "5가": 95000, "10가": 100000}}, {"id": 13, "brand": "귀뚜라미", "gubun": "스텐", "model": "W-15SU(상향)", "cost": 90000, "prices": {"0가": 90000, "1가": 91000, "2가": 92000, "3가": 93000, "4가": 94000, "5가": 95000, "10가": 100000}}, {"id": 14, "brand": "귀뚜라미", "gubun": "스텐", "model": "W-30", "cost": 105000, "prices": {"0가": 105000, "1가": 106000, "2가": 107000, "3가": 108000, "4가": 109000, "5가": 110000, "10가": 115000}}, {"id": 15, "brand": "귀뚜라미", "gubun": "스텐", "model": "W-30SU(상향)", "cost": 105000, "prices": {"0가": 105000, "1가": 106000, "2가": 107000, "3가": 108000, "4가": 109000, "5가": 110000, "10가": 115000}}, {"id": 16, "brand": "귀뚜라미", "gubun": "스텐", "model": "W-50H(가로)", "cost": 129999, "prices": {"0가": 129999.99999999999, "1가": 130999.99999999999, "2가": 132000, "3가": 133000, "4가": 134000, "5가": 135000, "10가": 140000}}, {"id": 17, "brand": "귀뚜라미", "gubun": "스텐", "model": "W-50SV(세로)", "cost": 129999, "prices": {"0가": 129999.99999999999, "1가": 130999.99999999999, "2가": 132000, "3가": 133000, "4가": 134000, "5가": 135000, "10가": 140000}}, {"id": 18, "brand": "경동", "gubun": "법랑", "model": "ESW350-15W", "cost": 77000, "prices": {"0가": 77000, "1가": 78000, "2가": 79000, "3가": 80000, "4가": 81000, "5가": 82000, "10가": 87000}}, {"id": 19, "brand": "경동", "gubun": "법랑", "model": "ESW350-15U(상향)", "cost": 77000, "prices": {"0가": 77000, "1가": 78000, "2가": 79000, "3가": 80000, "4가": 81000, "5가": 82000, "10가": 87000}}, {"id": 20, "brand": "경동", "gubun": "법랑", "model": "ESW350-30W", "cost": 94000, "prices": {"0가": 94000, "1가": 95000, "2가": 96000, "3가": 97000, "4가": 98000, "5가": 99000, "10가": 104000}}, {"id": 21, "brand": "경동", "gubun": "법랑", "model": "ESW350-30U(상향)", "cost": 94000, "prices": {"0가": 94000, "1가": 95000, "2가": 96000, "3가": 97000, "4가": 98000, "5가": 99000, "10가": 104000}}, {"id": 22, "brand": "경동", "gubun": "법랑", "model": "ESW350-50WV(세로)", "cost": 117000, "prices": {"0가": 117000, "1가": 118000, "2가": 119000, "3가": 120000, "4가": 121000, "5가": 122000, "10가": 127000}}, {"id": 23, "brand": "경동", "gubun": "법랑", "model": "ESW350-50WH(가로)", "cost": 117000, "prices": {"0가": 117000, "1가": 118000, "2가": 119000, "3가": 120000, "4가": 121000, "5가": 122000, "10가": 127000}}, {"id": 24, "brand": "경동", "gubun": "법랑", "model": "ESW350-50FS(바닥)", "cost": 145000, "prices": {"0가": 145000, "1가": 146000, "2가": 147000, "3가": 148000, "4가": 149000, "5가": 150000, "10가": 155000}}, {"id": 25, "brand": "경동", "gubun": "법랑", "model": "ESW350-80WV(세로)", "cost": 195000, "prices": {"0가": 195000, "1가": 196000, "2가": 197000, "3가": 198000, "4가": 199000, "5가": 200000, "10가": 205000}}, {"id": 26, "brand": "경동", "gubun": "법랑", "model": "ESW350-100WV(세로)", "cost": 215000, "prices": {"0가": 215000, "1가": 216000, "2가": 217000, "3가": 218000, "4가": 219000, "5가": 220000, "10가": 225000}}, {"id": 27, "brand": "경동", "gubun": "법랑", "model": "ESW350-100FS(바닥)", "cost": 204999, "prices": {"0가": 204999.99999999997, "1가": 205999.99999999997, "2가": 206999.99999999997, "3가": 207999.99999999997, "4가": 208999.99999999997, "5가": 209999.99999999997, "10가": 214999.99999999997}}, {"id": 28, "brand": "경동", "gubun": "법랑", "model": "ESW360-15W", "cost": 77000, "prices": {"0가": 77000, "1가": 78000, "2가": 79000, "3가": 80000, "4가": 81000, "5가": 82000, "10가": 87000}}, {"id": 29, "brand": "경동", "gubun": "법랑", "model": "ESW360-15U(상향)", "cost": 77000, "prices": {"0가": 77000, "1가": 78000, "2가": 79000, "3가": 80000, "4가": 81000, "5가": 82000, "10가": 87000}}, {"id": 30, "brand": "경동", "gubun": "법랑", "model": "ESW360-30W", "cost": 94000, "prices": {"0가": 94000, "1가": 95000, "2가": 96000, "3가": 97000, "4가": 98000, "5가": 99000, "10가": 104000}}, {"id": 31, "brand": "경동", "gubun": "법랑", "model": "ESW360-30U(상향)", "cost": 94000, "prices": {"0가": 94000, "1가": 95000, "2가": 96000, "3가": 97000, "4가": 98000, "5가": 99000, "10가": 104000}}, {"id": 32, "brand": "경동", "gubun": "법랑", "model": "ESW360-50WV(세로)", "cost": 117000, "prices": {"0가": 117000, "1가": 118000, "2가": 119000, "3가": 120000, "4가": 121000, "5가": 122000, "10가": 127000}}, {"id": 33, "brand": "경동", "gubun": "스텐", "model": "ESW550-15W", "cost": 87000, "prices": {"0가": 87000, "1가": 88000, "2가": 89000, "3가": 90000, "4가": 91000, "5가": 92000, "10가": 97000}}, {"id": 34, "brand": "경동", "gubun": "스텐", "model": "ESW550-15U(상향)", "cost": 87000, "prices": {"0가": 87000, "1가": 88000, "2가": 89000, "3가": 90000, "4가": 91000, "5가": 92000, "10가": 97000}}, {"id": 35, "brand": "경동", "gubun": "스텐", "model": "ESW550-30W", "cost": 104000, "prices": {"0가": 104000, "1가": 105000, "2가": 106000, "3가": 107000, "4가": 108000, "5가": 109000, "10가": 114000}}, {"id": 36, "brand": "경동", "gubun": "스텐", "model": "ESW550-30U(상향)", "cost": 104000, "prices": {"0가": 104000, "1가": 105000, "2가": 106000, "3가": 107000, "4가": 108000, "5가": 109000, "10가": 114000}}, {"id": 37, "brand": "경동", "gubun": "스텐", "model": "ESW550-50WV(세로)", "cost": 132000, "prices": {"0가": 132000, "1가": 133000, "2가": 134000, "3가": 135000, "4가": 136000, "5가": 137000, "10가": 142000}}, {"id": 38, "brand": "경동", "gubun": "스텐", "model": "ESW550-50WH(가로)", "cost": 132000, "prices": {"0가": 132000, "1가": 133000, "2가": 134000, "3가": 135000, "4가": 136000, "5가": 137000, "10가": 142000}}, {"id": 39, "brand": "경동", "gubun": "법랑", "model": "ESW351-15W", "cost": 75000, "prices": {"0가": 75000, "1가": 76000, "2가": 77000, "3가": 78000, "4가": 79000, "5가": 80000, "10가": 85000}}, {"id": 40, "brand": "경동", "gubun": "법랑", "model": "ESW351-15U", "cost": 75000, "prices": {"0가": 75000, "1가": 76000, "2가": 77000, "3가": 78000, "4가": 79000, "5가": 80000, "10가": 85000}}, {"id": 41, "brand": "경동", "gubun": "법랑", "model": "ESW351-30W", "cost": 92000, "prices": {"0가": 92000, "1가": 93000, "2가": 94000, "3가": 95000, "4가": 96000, "5가": 97000, "10가": 102000}}, {"id": 42, "brand": "경동", "gubun": "법랑", "model": "ESW351-30U", "cost": 92000, "prices": {"0가": 92000, "1가": 93000, "2가": 94000, "3가": 95000, "4가": 96000, "5가": 97000, "10가": 102000}}, {"id": 43, "brand": "경동", "gubun": "법랑", "model": "ESW351-50WV", "cost": 115000, "prices": {"0가": 115000, "1가": 116000, "2가": 117000, "3가": 118000, "4가": 119000, "5가": 120000, "10가": 125000}}, {"id": 44, "brand": "경동", "gubun": "법랑", "model": "ESW351-50WH", "cost": 115000, "prices": {"0가": 115000, "1가": 116000, "2가": 117000, "3가": 118000, "4가": 119000, "5가": 120000, "10가": 125000}}, {"id": 45, "brand": "대성셀틱", "gubun": "법랑", "model": "SG15", "cost": 70000, "prices": {"0가": 72000, "1가": 74000, "2가": 76000, "3가": 78000, "4가": 79000, "5가": 80000, "10가": 84000}}, {"id": 46, "brand": "대성셀틱", "gubun": "법랑", "model": "SG15US(상향)", "cost": 70000, "prices": {"0가": 72000, "1가": 74000, "2가": 76000, "3가": 78000, "4가": 79000, "5가": 80000, "10가": 84000}}, {"id": 47, "brand": "대성셀틱", "gubun": "법랑", "model": "SG30", "cost": 85000, "prices": {"0가": 87000, "1가": 89000, "2가": 91000, "3가": 93000, "4가": 94000, "5가": 95000, "10가": 99000}}, {"id": 48, "brand": "대성셀틱", "gubun": "법랑", "model": "SG30US(상향)", "cost": 85000, "prices": {"0가": 87000, "1가": 89000, "2가": 91000, "3가": 93000, "4가": 94000, "5가": 95000, "10가": 99000}}, {"id": 49, "brand": "대성셀틱", "gubun": "법랑", "model": "SEV50", "cost": 105000, "prices": {"0가": 107000, "1가": 109000, "2가": 111000, "3가": 113000, "4가": 114000, "5가": 115000, "10가": 119000}}, {"id": 50, "brand": "대성셀틱", "gubun": "법랑", "model": "SEV80(세로)", "cost": 158000, "prices": {"0가": 160000, "1가": 162000, "2가": 164000, "3가": 166000, "4가": 167000, "5가": 168000, "10가": 172000}}, {"id": 51, "brand": "대성셀틱", "gubun": "법랑", "model": "SEV100(세로)", "cost": 178000, "prices": {"0가": 180000, "1가": 182000, "2가": 184000, "3가": 186000, "4가": 187000, "5가": 188000, "10가": 192000}}, {"id": 52, "brand": "대성셀틱", "gubun": "법랑", "model": "DSF-50JRB(바닥)", "cost": 116000, "prices": {"0가": 118000, "1가": 120000, "2가": 122000, "3가": 124000, "4가": 125000, "5가": 126000, "10가": 130000}}, {"id": 53, "brand": "대성셀틱", "gubun": "법랑", "model": "DSF-100JRB(바닥)", "cost": 186000, "prices": {"0가": 188000, "1가": 190000, "2가": 192000, "3가": 194000, "4가": 195000, "5가": 196000, "10가": 200000}}, {"id": 54, "brand": "대성셀틱", "gubun": "스텐", "model": "RZS15(OS하향)", "cost": 80000, "prices": {"0가": 82000, "1가": 84000, "2가": 86000, "3가": 88000, "4가": 89000, "5가": 90000, "10가": 94000}}, {"id": 55, "brand": "대성셀틱", "gubun": "스텐", "model": "RZS15(US상향)", "cost": 80000, "prices": {"0가": 82000, "1가": 84000, "2가": 86000, "3가": 88000, "4가": 89000, "5가": 90000, "10가": 94000}}, {"id": 56, "brand": "대성셀틱", "gubun": "스텐", "model": "RZS30(OS하향)", "cost": 96000, "prices": {"0가": 98000, "1가": 100000, "2가": 102000, "3가": 104000, "4가": 105000, "5가": 106000, "10가": 110000}}, {"id": 57, "brand": "대성셀틱", "gubun": "스텐", "model": "RZS30(US상향)", "cost": 96000, "prices": {"0가": 98000, "1가": 100000, "2가": 102000, "3가": 104000, "4가": 105000, "5가": 106000, "10가": 110000}}, {"id": 58, "brand": "대성셀틱", "gubun": "스텐", "model": "RZF-15(가로)", "cost": 83000, "prices": {"0가": 85000, "1가": 87000, "2가": 89000, "3가": 91000, "4가": 92000, "5가": 93000, "10가": 97000}}, {"id": 59, "brand": "대성셀틱", "gubun": "스텐", "model": "RZF-15US(상향)", "cost": 83000, "prices": {"0가": 85000, "1가": 87000, "2가": 89000, "3가": 91000, "4가": 92000, "5가": 93000, "10가": 97000}}, {"id": 60, "brand": "대성셀틱", "gubun": "스텐", "model": "RZB30(가로)", "cost": 105000, "prices": {"0가": 107000, "1가": 109000, "2가": 111000, "3가": 113000, "4가": 114000, "5가": 115000, "10가": 119000}}, {"id": 61, "brand": "대성셀틱", "gubun": "스텐", "model": "RZB50(가로)", "cost": 135000, "prices": {"0가": 137000, "1가": 139000, "2가": 141000, "3가": 143000, "4가": 144000, "5가": 145000, "10가": 149000}}, {"id": 62, "brand": "대성셀틱", "gubun": "스텐", "model": "RZL50A(세로)", "cost": 120000, "prices": {"0가": 122000, "1가": 124000, "2가": 126000, "3가": 128000, "4가": 129000, "5가": 130000, "10가": 134000}}, {"id": 63, "brand": "대성셀틱", "gubun": "스텐", "model": "RZL80A(세로)", "cost": 176000, "prices": {"0가": 178000, "1가": 180000, "2가": 182000, "3가": 184000, "4가": 185000, "5가": 186000, "10가": 190000}}, {"id": 64, "brand": "대성셀틱", "gubun": "스텐", "model": "RZL100A(세로)", "cost": 196000, "prices": {"0가": 198000, "1가": 200000, "2가": 202000, "3가": 204000, "4가": 205000, "5가": 206000, "10가": 210000}}, {"id": 65, "brand": "대성셀틱", "gubun": "스텐", "model": "DSF-50JRBS(바닥)", "cost": 146000, "prices": {"0가": 148000, "1가": 150000, "2가": 152000, "3가": 154000, "4가": 155000, "5가": 156000, "10가": 160000}}, {"id": 66, "brand": "대성셀틱", "gubun": "스텐", "model": "DSF-100JRBS(바닥)", "cost": 206000, "prices": {"0가": 208000, "1가": 210000, "2가": 212000, "3가": 214000, "4가": 215000, "5가": 216000, "10가": 220000}}, {"id": 67, "brand": "중형", "gubun": "법랑", "model": "G200", "cost": 477000, "prices": {"0가": 477000, "1가": 477000, "2가": 487000, "3가": 487000, "4가": 492000, "5가": 497000, "10가": 517000}}, {"id": 68, "brand": "중형", "gubun": "법랑", "model": "G300", "cost": 570000, "prices": {"0가": 570000, "1가": 570000, "2가": 580000, "3가": 580000, "4가": 585000, "5가": 590000, "10가": 610000}}, {"id": 69, "brand": "중형", "gubun": "법랑", "model": "G400", "cost": 667000, "prices": {"0가": 667000, "1가": 667000, "2가": 677000, "3가": 677000, "4가": 682000, "5가": 687000, "10가": 707000}}, {"id": 70, "brand": "중형", "gubun": "법랑", "model": "G470", "cost": 738000, "prices": {"0가": 738000, "1가": 738000, "2가": 748000, "3가": 748000, "4가": 753000, "5가": 758000, "10가": 778000}}, {"id": 71, "brand": "중형", "gubun": "법랑", "model": "DSF-140JK", "cost": 268000, "prices": {"0가": 268000, "1가": 278000, "2가": 278000, "3가": 288000, "4가": 293000, "5가": 298000, "10가": 318000}}, {"id": 72, "brand": "중형", "gubun": "법랑", "model": "DSF-220JK", "cost": 368000, "prices": {"0가": 368000, "1가": 378000, "2가": 378000, "3가": 388000, "4가": 393000, "5가": 398000, "10가": 418000}}, {"id": 73, "brand": "중형", "gubun": "법랑", "model": "DSF-270JK", "cost": 448000, "prices": {"0가": 448000, "1가": 458000, "2가": 458000, "3가": 468000, "4가": 473000, "5가": 478000, "10가": 498000}}, {"id": 74, "brand": "중형", "gubun": "법랑", "model": "DSF-340JK", "cost": 488000, "prices": {"0가": 488000, "1가": 498000, "2가": 498000, "3가": 508000, "4가": 513000, "5가": 518000, "10가": 538000}}, {"id": 75, "brand": "중형", "gubun": "법랑", "model": "DSF-430JK", "cost": 548000, "prices": {"0가": 548000, "1가": 558000, "2가": 558000, "3가": 568000, "4가": 573000, "5가": 578000, "10가": 598000}}, {"id": 76, "brand": "중형", "gubun": "법랑", "model": "DSF-500JK", "cost": 688000, "prices": {"0가": 688000, "1가": 698000, "2가": 698000, "3가": 708000, "4가": 713000, "5가": 718000, "10가": 738000}}],
+  shippingItems: [{"id": 1, "brand": "귀뚜라미", "model": "G15", "fee": 4000}, {"id": 2, "brand": "귀뚜라미", "model": "G15U(상향)", "fee": 4000}, {"id": 3, "brand": "귀뚜라미", "model": "G30", "fee": 5000}, {"id": 4, "brand": "귀뚜라미", "model": "G30U(상향)", "fee": 5000}, {"id": 5, "brand": "귀뚜라미", "model": "G50(세로)", "fee": 6000}, {"id": 6, "brand": "귀뚜라미", "model": "G50H(가로)", "fee": 6000}, {"id": 7, "brand": "귀뚜라미", "model": "KDEWPLUS-50B(바닥)", "fee": 6000}, {"id": 8, "brand": "귀뚜라미", "model": "G80H(가로)", "fee": 10000}, {"id": 9, "brand": "귀뚜라미", "model": "G100H(가로)", "fee": 20000}, {"id": 10, "brand": "귀뚜라미", "model": "KDEWPLUS-100U(바닥)", "fee": 20000}, {"id": 11, "brand": "귀뚜라미", "model": "W15E(가로)", "fee": 4000}, {"id": 12, "brand": "귀뚜라미", "model": "W-15S", "fee": 4000}, {"id": 13, "brand": "귀뚜라미", "model": "W-15SU(상향)", "fee": 4000}, {"id": 14, "brand": "귀뚜라미", "model": "W-30", "fee": 5000}, {"id": 15, "brand": "귀뚜라미", "model": "W-30SU(상향)", "fee": 5000}, {"id": 16, "brand": "귀뚜라미", "model": "W-50H(가로)", "fee": 6000}, {"id": 17, "brand": "귀뚜라미", "model": "W-50SV(세로)", "fee": 6000}, {"id": 18, "brand": "경동", "model": "ESW350-15W", "fee": 4000}, {"id": 19, "brand": "경동", "model": "ESW350-15U(상향)", "fee": 4000}, {"id": 20, "brand": "경동", "model": "ESW350-30W", "fee": 5000}, {"id": 21, "brand": "경동", "model": "ESW350-30U(상향)", "fee": 5000}, {"id": 22, "brand": "경동", "model": "ESW350-50WV(세로)", "fee": 6000}, {"id": 23, "brand": "경동", "model": "ESW350-50WH(가로)", "fee": 6000}, {"id": 24, "brand": "경동", "model": "ESW350-50FS(바닥)", "fee": 6000}, {"id": 25, "brand": "경동", "model": "ESW350-80WV(세로)", "fee": 10000}, {"id": 26, "brand": "경동", "model": "ESW350-100WV(세로)", "fee": 20000}, {"id": 27, "brand": "경동", "model": "ESW350-100FS(바닥)", "fee": 20000}, {"id": 28, "brand": "경동", "model": "ESW360-15W", "fee": 4000}, {"id": 29, "brand": "경동", "model": "ESW360-15U(상향)", "fee": 4000}, {"id": 30, "brand": "경동", "model": "ESW360-30W", "fee": 5000}, {"id": 31, "brand": "경동", "model": "ESW360-30U(상향)", "fee": 5000}, {"id": 32, "brand": "경동", "model": "ESW360-50WV(세로)", "fee": 6000}, {"id": 33, "brand": "경동", "model": "ESW550-15W", "fee": 4000}, {"id": 34, "brand": "경동", "model": "ESW550-15U(상향)", "fee": 4000}, {"id": 35, "brand": "경동", "model": "ESW550-30W", "fee": 5000}, {"id": 36, "brand": "경동", "model": "ESW550-30U(상향)", "fee": 5000}, {"id": 37, "brand": "경동", "model": "ESW550-50WV(세로)", "fee": 6000}, {"id": 38, "brand": "경동", "model": "ESW550-50WH(가로)", "fee": 6000}, {"id": 39, "brand": "경동", "model": "ESW351-15W", "fee": 4000}, {"id": 40, "brand": "경동", "model": "ESW351-15U", "fee": 4000}, {"id": 41, "brand": "경동", "model": "ESW351-30W", "fee": 5000}, {"id": 42, "brand": "경동", "model": "ESW351-30U", "fee": 5000}, {"id": 43, "brand": "경동", "model": "ESW351-50WV", "fee": 6000}, {"id": 44, "brand": "경동", "model": "ESW351-50WH", "fee": 6000}, {"id": 45, "brand": "대성셀틱", "model": "SG15", "fee": 4000}, {"id": 46, "brand": "대성셀틱", "model": "SG15US(상향)", "fee": 4000}, {"id": 47, "brand": "대성셀틱", "model": "SG30", "fee": 5000}, {"id": 48, "brand": "대성셀틱", "model": "SG30US(상향)", "fee": 5000}, {"id": 49, "brand": "대성셀틱", "model": "SEV50", "fee": 6000}, {"id": 50, "brand": "대성셀틱", "model": "SEV80(세로)", "fee": 10000}, {"id": 51, "brand": "대성셀틱", "model": "SEV100(세로)", "fee": 20000}, {"id": 52, "brand": "대성셀틱", "model": "DSF-50JRB(바닥)", "fee": 6000}, {"id": 53, "brand": "대성셀틱", "model": "DSF-100JRB(바닥)", "fee": 20000}, {"id": 54, "brand": "대성셀틱", "model": "RZS15(OS하향)", "fee": 4000}, {"id": 55, "brand": "대성셀틱", "model": "RZS15(US상향)", "fee": 4000}, {"id": 56, "brand": "대성셀틱", "model": "RZS30(OS하향)", "fee": 5000}, {"id": 57, "brand": "대성셀틱", "model": "RZS30(US상향)", "fee": 5000}, {"id": 58, "brand": "대성셀틱", "model": "RZF-15(가로)", "fee": 4000}, {"id": 59, "brand": "대성셀틱", "model": "RZF-15US(상향)", "fee": 4000}, {"id": 60, "brand": "대성셀틱", "model": "RZB30(가로)", "fee": 5000}, {"id": 61, "brand": "대성셀틱", "model": "RZB50(가로)", "fee": 6000}, {"id": 62, "brand": "대성셀틱", "model": "RZL50A(세로)", "fee": 6000}, {"id": 63, "brand": "대성셀틱", "model": "RZL80A(세로)", "fee": 10000}, {"id": 64, "brand": "대성셀틱", "model": "RZL100A(세로)", "fee": 20000}, {"id": 65, "brand": "대성셀틱", "model": "DSF-50JRBS(바닥)", "fee": 6000}, {"id": 66, "brand": "대성셀틱", "model": "DSF-100JRBS(바닥)", "fee": 20000}, {"id": 67, "brand": "중형", "model": "G200", "fee": 38500}, {"id": 68, "brand": "중형", "model": "G300", "fee": 41800}, {"id": 69, "brand": "중형", "model": "G400", "fee": 62700}, {"id": 70, "brand": "중형", "model": "G470", "fee": 71500}, {"id": 71, "brand": "중형", "model": "DSF-140JK", "fee": 30000}, {"id": 72, "brand": "중형", "model": "DSF-220JK", "fee": 38000}, {"id": 73, "brand": "중형", "model": "DSF-270JK", "fee": 45000}, {"id": 74, "brand": "중형", "model": "DSF-340JK", "fee": 50000}, {"id": 75, "brand": "중형", "model": "DSF-430JK", "fee": 62000}, {"id": 76, "brand": "중형", "model": "DSF-500JK", "fee": 70000}],
+  customers: [
+    {id:1, name:'OO설비', priceGroups: {'귀뚜라미':'2가','경동':'2가','대성셀틱':'2가','중형':'2가'}, shipVat:'included'},
+    {id:2, name:'△△에너지', priceGroups: {'귀뚜라미':'5가','경동':'5가','대성셀틱':'5가','중형':'5가'}, shipVat:'separate'},
+  ],
+  suppliers: [
+    {id:1, name:'홈시스', bizNo:'', bank:'', account:'', holder:''},
+    {id:2, name:'디시몰', bizNo:'', bank:'', account:'', holder:''},
+    {id:3, name:'88번가', bizNo:'', bank:'', account:'', holder:''},
+    {id:4, name:'마이하임', bizNo:'', bank:'', account:'', holder:''},
+  ],
+  orderMeta: { customerId: null, supplierId: 1, date: new Date().toISOString().slice(0,10), docNo: 'ORD-'+Date.now().toString().slice(-6) },
+  orderLines: [],
+  orderHistory: [],
+  selectedBrands: [],
+  selectedModel: null,
+  lineQty: 1,
+  costBrandFilter: '전체',
+  shipBrandFilter: '전체',
+  orderCustSearch: '',
+  custSearch: '',
+  _idSeq: 600,
+};
+function nextId(){ return ++state._idSeq; }
+function fmt(n){ return (n||0).toLocaleString('ko-KR'); }
+function findCost(brand, model){ const c = state.costItems.find(c=>c.brand===brand && c.model===model); return c?c.cost:0; }
+function findModel(brand, model){ return state.costItems.find(c=>c.brand===brand && c.model===model) || null; }
+// 모델+가격그룹의 판매단가: 엑셀에 저장된 가격표 우선, 없으면 원가+기본마진
+function priceOf(brand, model, group){
+  const m = findModel(brand, model);
+  if(!m) return 0;
+  if(m.prices && m.prices[group]!=null) return m.prices[group];
+  // 가격표에 값이 없는 그룹이면 원가+기본마진으로 대체
+  return (m.cost||0) + (PRICE_GROUPS[group]||0);
+}
+// 모델이 실제로 판매 가능한 가격그룹만 반환 (엑셀에서 값이 채워진 것)
+function availableGroups(brand, model){
+  const m = findModel(brand, model);
+  if(!m || !m.prices) return PRICE_GROUP_KEYS;
+  const ok = PRICE_GROUP_KEYS.filter(g=> m.prices[g]!=null);
+  return ok.length ? ok : PRICE_GROUP_KEYS;
+}
+function findShipping(brand, model){ const s = state.shippingItems.find(s=>s.brand===brand && s.model===model); return s?s.fee:0; }
+function brandClass(b){ return b==='귀뚜라미'?'guttu':b==='경동'?'kd':b==='대성셀틱'?'ds':b==='중형'?'rn':'guttu'; }
+function brandShort(b){ return b==='대성셀틱' ? '대성' : b; } // 화면 표시용 짧은 이름 (내부 데이터는 그대로 '대성셀틱')
+function formatDateShort(dateStr){
+  if(!dateStr) return '-';
+  const [y,m,d] = dateStr.split('-');
+  return m && d ? `${m}월${d}일` : dateStr;
+}
+function makePriceGroups(g){ const o={}; BRANDS.forEach(b=>o[b]=g||'5가'); return o; }
+// 거래처 데이터를 브랜드별 가격그룹(priceGroups) 구조로 이관 (기존 단일 priceGroup 값을 4개 브랜드에 동일 적용)
+function migrateCustomer(c){
+  if(!c.priceGroups){
+    c.priceGroups = makePriceGroups(c.priceGroup || '5가');
+    delete c.priceGroup;
+  } else {
+    BRANDS.forEach(b=>{ if(!c.priceGroups[b]) c.priceGroups[b]='5가'; });
+  }
+}
+function currentCustomer(){ return state.customers.find(c=>c.id===state.orderMeta.customerId) || null; }
+function currentSupplier(){ return state.suppliers.find(s=>s.id===state.orderMeta.supplierId) || null; }
+
+/* ============ 솔라피 발송 (구인문자앱과 동일한 검증된 방식) ============ */
+let apiKey='', apiSecret='', fromNum='';
+function loadApiSettings(){
+  try{
+    apiKey = localStorage.getItem('homsys_apiKey') || '';
+    apiSecret = localStorage.getItem('homsys_apiSecret') || '';
+    fromNum = localStorage.getItem('homsys_fromNum') || '';
+  }catch(e){}
+}
+function saveApiSettings(){
+  const k=document.getElementById('cfgApiKey').value.trim();
+  const s=document.getElementById('cfgApiSecret').value.trim();
+  const f=document.getElementById('cfgFromNum').value.trim();
+  if(!k||!s||!f){ alert('API Key, Secret, 발신번호를 모두 입력해주세요.'); return; }
+  apiKey=k; apiSecret=s; fromNum=f;
+  try{
+    localStorage.setItem('homsys_apiKey',k);
+    localStorage.setItem('homsys_apiSecret',s);
+    localStorage.setItem('homsys_fromNum',f);
+  }catch(e){}
+  toast('발송 설정을 저장했습니다');
+  render();
+}
+function toggleSecret(){
+  const el=document.getElementById('cfgApiSecret');
+  const btn=document.getElementById('secretToggleBtn');
+  if(el.type==='password'){ el.type='text'; if(btn) btn.textContent='🙈 가리기'; }
+  else { el.type='password'; if(btn) btn.textContent='👁 보기'; }
+}
+function updateSecretLen(){
+  const el=document.getElementById('cfgApiSecret');
+  const sp=document.getElementById('secretLen');
+  if(el&&sp){ const v=el.value; sp.innerHTML='현재 '+v.length+'자'+(v&&/\s/.test(v)?' · ⚠ 공백이 포함되어 있어요':''); }
+}
+async function getAuthHeader(){
+  const date=new Date().toISOString();
+  const salt=Math.random().toString(36).substring(2,12);
+  const enc=new TextEncoder();
+  const key=await crypto.subtle.importKey('raw',enc.encode(apiSecret),{name:'HMAC',hash:'SHA-256'},false,['sign']);
+  const sig=await crypto.subtle.sign('HMAC',key,enc.encode(date+salt));
+  const signature=Array.from(new Uint8Array(sig)).map(b=>b.toString(16).padStart(2,'0')).join('');
+  return 'HMAC-SHA256 apiKey='+apiKey+', date='+date+', salt='+salt+', signature='+signature;
+}
+async function sendSms(to, text){
+  if(!apiKey||!apiSecret||!fromNum) return {ok:false,error:'발송 설정이 비어있습니다. [설정 → 문자발송]에서 입력해주세요.'};
+  try{
+    const auth=await getAuthHeader();
+    const msg={to:to.replace(/[^0-9]/g,''), from:fromNum.replace(/[^0-9]/g,''), text};
+    const res=await fetch('https://api.solapi.com/messages/v4/send',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':auth},
+      body:JSON.stringify({message:msg})
+    });
+    if(!res.ok){
+      const e=await res.json().catch(()=>({}));
+      const m=e.errorMessage||e.message||e.errorCode||('오류 (HTTP '+res.status+')');
+      return {ok:false,error:m};
+    }
+    return {ok:true};
+  }catch(err){
+    return {ok:false,error:'네트워크/CORS 오류: '+err.message};
+  }
+}
+function buildOrderSmsText(){
+  const cust=currentCustomer();
+  const sup=currentSupplier();
+  const t=calcTotals();
+  const lines = state.orderLines.map(l=>{
+    const ship = l.shipVat==='none' ? '' : (l.shippingTotal ? ` (택배 ${fmt(l.shippingTotal)})` : '');
+    return `- ${l.brand} ${l.model}\n  ${fmt(l.unitPrice)}원 x ${l.qty}대 = ${fmt(l.amount)}원${ship}`;
+  }).join('\n');
+  let totals = `공급가액: ${fmt(t.supply)}원\n부가세(10%): ${fmt(t.vat)}원`;
+  if(t.shipInc) totals += `\n택배비(포함가): ${fmt(t.shipInc)}원`;
+  totals += `\n합계금액: ${fmt(t.grand)}원 (VAT포함)`;
+  let payInfo='';
+  if(sup && (sup.bank||sup.account)){
+    payInfo = `\n\n[입금계좌] ${sup.bank||''} ${sup.account||''}${sup.holder?` (${sup.holder})`:''}`;
+  }
+  const supHead = sup ? `공급자: ${sup.name}${sup.bizNo?` (${sup.bizNo})`:''}\n` : '';
+  return `[발주 거래명세서]\n${supHead}거래처: ${cust?cust.name:''}\n일자: ${state.orderMeta.date}\n\n${lines}\n\n${totals}${payInfo}`;
+}
+
+/* ===== MMS(이미지 문자) 발송 ===== */
+// 거래명세서 DOM을 JPG(base64)로, 솔라피 제한(1500x1440px, 200KB) 이하로 맞춤
+async function invoiceToJpegBase64(){
+  const area=document.getElementById('invoiceArea');
+  if(!area) throw new Error('거래명세서 화면을 찾을 수 없습니다.');
+  const raw=await html2canvas(area,{scale:2,backgroundColor:'#ffffff'});
+
+  // 1) 픽셀 한도(가로 1500, 세로 1440) 안으로 축소
+  const MAX_W=1500, MAX_H=1440;
+  let scale=Math.min(1, MAX_W/raw.width, MAX_H/raw.height);
+  let w=Math.floor(raw.width*scale), h=Math.floor(raw.height*scale);
+  let work=document.createElement('canvas');
+  work.width=w; work.height=h;
+  work.getContext('2d').drawImage(raw,0,0,w,h);
+
+  // 2) 200KB 이하가 될 때까지 품질/해상도 조정
+  let quality=0.92;
+  for(let attempt=0; attempt<10; attempt++){
+    const b64=work.toDataURL('image/jpeg',quality).split(',')[1];
+    const bytes=Math.ceil(b64.length*3/4);
+    if(bytes<=200*1024) return b64;
+    if(quality>0.5){ quality-=0.12; }
+    else {
+      const c=document.createElement('canvas');
+      c.width=Math.max(300,Math.round(work.width*0.85));
+      c.height=Math.max(300,Math.round(work.height*0.85));
+      c.getContext('2d').drawImage(work,0,0,c.width,c.height);
+      work=c; quality=0.8;
+    }
+  }
+  return work.toDataURL('image/jpeg',0.5).split(',')[1];
+}
+// 솔라피 스토리지에 이미지 업로드 → fileId
+async function uploadMmsImage(base64){
+  const auth=await getAuthHeader();
+  const res=await fetch('https://api.solapi.com/storage/v1/files',{
+    method:'POST',
+    headers:{'Content-Type':'application/json','Authorization':auth},
+    body:JSON.stringify({file:base64, type:'MMS'})
+  });
+  if(!res.ok){
+    const e=await res.json().catch(()=>({}));
+    throw new Error(e.errorMessage||e.message||('이미지 업로드 실패 (HTTP '+res.status+')'));
+  }
+  const data=await res.json();
+  return data.fileId;
+}
+async function sendMms(to, subject, text, imageId){
+  const auth=await getAuthHeader();
+  const msg={to:to.replace(/[^0-9]/g,''), from:fromNum.replace(/[^0-9]/g,''), text, subject, imageId, type:'MMS'};
+  const res=await fetch('https://api.solapi.com/messages/v4/send',{
+    method:'POST',
+    headers:{'Content-Type':'application/json','Authorization':auth},
+    body:JSON.stringify({message:msg})
+  });
+  if(!res.ok){
+    const e=await res.json().catch(()=>({}));
+    throw new Error(e.errorMessage||e.message||('MMS 발송 실패 (HTTP '+res.status+')'));
+  }
+  return true;
+}
+
+const TABS = [
+  {key:'order', label:'발주 작성'},
+  {key:'invoice', label:'거래명세서'},
+  {key:'history', label:'발주 이력'},
+  {key:'settings', label:'설정'},
+];
+function renderTabs(){
+  document.getElementById('tabNav').innerHTML = TABS.map(t=>
+    `<button class="${state.tab===t.key?'active':''}" onclick="setTab('${t.key}')">${t.label}</button>`).join('');
+}
+function setTab(key){ state.tab = key; render(); }
+
+function render(){
+  renderTabs();
+  const app = document.getElementById('app');
+  if(state.tab==='order') app.innerHTML = renderOrderTab();
+  else if(state.tab==='invoice') app.innerHTML = renderInvoiceTab();
+  else if(state.tab==='history') app.innerHTML = renderHistoryTab();
+  else if(state.tab==='settings') app.innerHTML = renderSettingsTab();
+  saveData();
+}
+
+function toast(msg){
+  const t = document.createElement('div');
+  t.className='toast'; t.textContent=msg; document.body.appendChild(t);
+  setTimeout(()=>t.remove(), 2200);
+}
+
+/* =================== 발주 작성 =================== */
+function renderOrderTab(){
+  const cust = currentCustomer();
+
+  const lineRows = state.orderLines.map(l=>`
+    <tr>
+      <td>${l.model}</td>
+      <td class="r">
+        <div class="line-qty-stepper">
+          <button class="lqbtn" onclick="stepLineQty(${l.id},-1)">−</button>
+          <span class="lqval">${l.qty}</span>
+          <button class="lqbtn" onclick="stepLineQty(${l.id},1)">＋</button>
+        </div>
+      </td>
+      <td class="r">
+        <select class="inline-sel" onchange="changeLineShip(${l.id}, this.value)">
+          <option value="none" ${l.shipVat==='none'?'selected':''}>무료</option>
+          <option value="separate" ${l.shipVat==='separate'?'selected':''}>별도</option>
+          <option value="included" ${l.shipVat==='included'?'selected':''}>포함</option>
+        </select>
+      </td>
+      <td class="col-brand"><span class="pill ${brandClass(l.brand)}">${brandShort(l.brand)}</span></td>
+      <td class="r"><button class="btn danger btn-x" onclick="removeLine(${l.id})">×</button></td>
+    </tr>`).join('');
+
+  const canAdd = !!state.selectedModel;
+
+  // 브랜드 버튼 + 그 아래 가격그룹 선택을 한 세트로 묶어 4개를 가로 한 줄에 배치
+  const brandPriceRow = `
+    <div class="brand-price-row">
+      ${BRANDS.map(b=>`
+        <div class="brand-price-col">
+          <button class="brand-chip ${state.selectedBrands.includes(b)?'on':''}" onclick="toggleBrand('${b}')"><span class="pill ${brandClass(b)}">${brandShort(b)}</span></button>
+          ${cust ? `<select onchange="changeCustGroupQuick('${b}', this.value)">
+            ${PRICE_GROUP_KEYS.map(g=>`<option value="${g}" ${(cust.priceGroups&&cust.priceGroups[b])===g?'selected':''}>${g.replace('가','')}</option>`).join('')}
+          </select>` : ''}
+        </div>`).join('')}
+    </div>`;
+
+  return `
+  <!-- STEP 1 거래처 -->
+  <div class="card">
+    <div class="step-head"><span class="step-badge">1</span>거래처 · 브랜드 · 가격 · 공급자</div>
+
+    <!-- 1행: 거래처 | 공급자 -->
+    <div class="row-2col">
+      <div style="position:relative;">
+        <label class="f">거래처 (이름으로 검색)
+          ${cust
+            ? `<div class="cust-picked"><span>${cust.name}</span><button class="btn ghost sm" onclick="clearOrderCustomer()">변경</button></div>`
+            : `<input type="text" id="custSearchOrder" placeholder="거래처명 일부를 입력하세요" value="${(state.orderCustSearch||'').replace(/"/g,'&quot;')}" oninput="onOrderCustSearch(this.value)" autocomplete="off">`}
+        </label>
+        ${!cust ? `<div class="cust-results" id="custResults">${buildCustResults()}</div>` : ''}
+      </div>
+      <label class="f">공급자
+        <select id="orderSupplier" onchange="onSupplierChange(this.value)">
+          ${state.suppliers.map(s=>`<option value="${s.id}" ${s.id===state.orderMeta.supplierId?'selected':''}>${s.name}</option>`).join('')}
+        </select>
+      </label>
+    </div>
+
+    <!-- 2행: 브랜드 + 가격그룹을 세트로 묶어 4열 한 줄 -->
+    <div class="section-title" style="margin-top:14px;">브랜드 (여러 개 선택 가능) ${cust?'· 아래는 가격그룹':''}</div>
+    ${brandPriceRow}
+    ${cust ? '' : `<p class="desc" style="margin:8px 0 0;">거래처를 선택하면 브랜드 아래에 가격그룹 선택이 나와요.</p>`}
+
+    <!-- 3행: 택배비 | 발주일자 -->
+    <div class="row-2col" style="margin-top:14px;">
+      ${cust ? `
+      <label class="f">택배비
+        <select id="custShipQuick" onchange="changeCustShipQuick(this.value)">
+          <option value="none" ${cust.shipVat==='none'?'selected':''}>무료</option>
+          <option value="separate" ${cust.shipVat==='separate'?'selected':''}>별도</option>
+          <option value="included" ${cust.shipVat==='included'?'selected':''}>포함</option>
+        </select>
+      </label>` : `<label class="f">택배비<select disabled><option>거래처 선택 후</option></select></label>`}
+      <label class="f">발주일자
+        <div class="date-compact-wrap">
+          <div class="date-compact-text">${formatDateShort(state.orderMeta.date)}</div>
+          <input type="date" id="orderDate" value="${state.orderMeta.date}" onchange="state.orderMeta.date=this.value; render();">
+        </div>
+      </label>
+    </div>
+    ${cust ? ''
+      : `<p class="desc" style="margin:10px 0 0;">거래처명을 입력하면 목록이 뜹니다. 선택하면 가격그룹이 자동 적용돼요.</p>`}
+  </div>
+
+  <!-- STEP 2 모델 선택 (탭하면 수량·담기 바로 나옴) -->
+  <div class="card ${cust?'':'locked'}">
+    <div class="step-head"><span class="step-badge">2</span>모델 선택 <span class="muted" style="font-weight:400;font-size:12px;margin-left:6px;">모델을 누르면 바로 수량·담기</span></div>
+    ${!cust ? `<div class="lock-hint">먼저 1단계에서 거래처를 선택하세요.</div>` : `
+    <div class="model-list">${buildModelList()}</div>`}
+  </div>
+
+
+  <!-- 담긴 목록 -->
+  <div class="card">
+    <div class="step-head"><span class="step-badge">3</span>담은 품목 (${state.orderLines.length})</div>
+    <div class="table-wrap">
+      <table class="order-lines-table">
+        <thead><tr><th>모델명</th><th class="r">수량</th><th class="r">택배비</th><th class="col-brand">브랜드</th><th></th></tr></thead>
+        <tbody>${lineRows || `<tr><td colspan="5" class="empty">아직 담은 품목이 없습니다. 위에서 모델을 눌러 담아보세요.</td></tr>`}</tbody>
+      </table>
+    </div>
+    <div style="margin-top:16px;">
+      <button class="btn accent big" onclick="setTab('invoice')" ${state.orderLines.length===0?'disabled':''}>거래명세서 만들기 →</button>
+    </div>
+  </div>`;
+}
+function changeCustGroupQuick(brand, g){
+  const cust=currentCustomer();
+  if(cust){ if(!cust.priceGroups) cust.priceGroups=makePriceGroups(); cust.priceGroups[brand]=g; saveData(); toast(`${brandShort(brand)} 가격그룹: ${g}`); }
+}
+function changeCustShipQuick(v){
+  const cust=currentCustomer();
+  if(cust){ cust.shipVat=v; saveData(); toast('택배비 방식 변경'); }
+}
+
+function buildModelList(){
+  const brands = state.selectedBrands;
+  if(brands.length===0) return `<div class="model-empty">위에서 브랜드를 먼저 선택하세요</div>`;
+  const cust = currentCustomer();
+  const sel = state.selectedModel;
+  let html='';
+  // 선택된 모델이 있으면 그 카드를 맨 위에 먼저 그림
+  if(sel){
+    const [sb,sm]=sel.split('||');
+    const sc=state.costItems.find(c=>c.brand===sb&&c.model===sm);
+    if(sc){
+      const ship=findShipping(sb,sm);
+      html += `<div class="model-chip on selected-inline" style="position:sticky;top:0;z-index:2;">
+        <div class="mc-row" onclick="selectModel('${sel.replace(/'/g,"\\'")}')">
+          <span class="mc-check">✓</span>
+          <span class="mc-name">${sc.model}${sc.gubun?` <span class="badge-vat">${sc.gubun}</span>`:''}</span>
+          <span class="mc-cost muted">${ship?`택배 ${fmt(ship)}/대`:''}</span>
+        </div>
+        <div class="mc-actions">
+          <div class="qty-stepper">
+            <button class="qbtn" onclick="stepQty(-1)">−</button>
+            <span class="qval" id="qtyVal">${state.lineQty}</span>
+            <button class="qbtn" onclick="stepQty(1)">＋</button>
+          </div>
+          <button class="btn accent addbtn" onclick="addLineInline('${sel.replace(/'/g,"\\'")}')">＋ 담기</button>
+        </div>
+      </div>`;
+    }
+  }
+  brands.forEach(b=>{   // 선택한 순서대로 (최근 선택이 맨 위)
+    const models = state.costItems.filter(c=>c.brand===b);
+    if(models.length===0) return;
+    if(brands.length>1) html += `<div class="model-group-label"><span class="pill ${brandClass(b)}">${brandShort(b)}</span></div>`;
+    html += models.map(c=>{
+      const val = `${b}||${c.model}`;
+      if(state.selectedModel===val) return ''; // 선택된 건 위에 이미 그림
+      return `<button class="model-chip" onclick="selectModel('${val.replace(/'/g,"\\'")}')">
+        <span class="mc-check"></span>
+        <span class="mc-name">${c.model}${c.gubun?` <span class="badge-vat">${c.gubun}</span>`:''}</span></button>`;
+    }).join('');
+  });
+  return html || `<div class="model-empty">등록된 모델이 없습니다.</div>`;
+}
+function stepQty(delta){
+  state.lineQty = Math.max(1, (state.lineQty||1)+delta);
+  const el=document.getElementById('qtyVal');
+  if(el) el.textContent=state.lineQty;
+}
+function selectModel(val){
+  const wasSelected = state.selectedModel===val;
+  if(wasSelected){ state.selectedModel=null; }
+  else { state.selectedModel=val; state.lineQty=1; }
+  render();
+  if(!wasSelected){
+    setTimeout(()=>{ const ml=document.querySelector('.model-list'); if(ml) ml.scrollTop=0; }, 30);
+  }
+}
+function addLineInline(val){
+  const cust=currentCustomer();
+  const [brand,model]=val.split('||');
+  const custGroup = cust && cust.priceGroups ? cust.priceGroups[brand] : null;
+  const priceGroup = custGroup && availableGroups(brand,model).includes(custGroup) ? custGroup : availableGroups(brand,model)[0];
+  const shipVat = cust ? cust.shipVat : 'included';
+  const qty = state.lineQty||1;
+  const unitPrice = priceOf(brand,model,priceGroup);
+  const amount = unitPrice*qty;
+  const shippingFee = findShipping(brand,model);
+  const shippingTotal = (shipVat==='none') ? 0 : shippingFee*qty;
+  state.orderLines.push({id:nextId(), brand, model, priceGroup, unitPrice, qty, amount, shippingFee, shippingTotal, shipVat});
+  state.selectedModel=null; state.lineQty=1;
+  render();
+  toast('담았습니다: '+model+' '+qty+'대');
+}
+function toggleBrand(b){
+  const i = state.selectedBrands.indexOf(b);
+  if(i>=0){
+    state.selectedBrands.splice(i,1);
+  } else {
+    state.selectedBrands.unshift(b); // 새로 선택한 브랜드를 맨 앞에 → 모델 목록 위로
+  }
+  if(state.selectedModel){ const mb = state.selectedModel.split('||')[0]; if(!state.selectedBrands.includes(mb)) state.selectedModel=null; }
+  render();
+  // 모델 목록을 맨 위로 올려 방금 추가한 브랜드가 바로 보이게
+  setTimeout(()=>{ const ml=document.querySelector('.model-list'); if(ml) ml.scrollTop=0; }, 30);
+}
+function onSupplierChange(id){ state.orderMeta.supplierId=parseInt(id,10); render(); }
+function onCustomerChange(id){
+  state.orderMeta.customerId = id ? parseInt(id,10) : null;
+  render();
+}
+function buildCustResults(){
+  const q=(state.orderCustSearch||'').trim();
+  if(!q) return '';
+  const matches=state.customers.filter(c=>c.name.includes(q)).slice(0,30);
+  if(matches.length===0) return `<div class="cust-result-item muted">일치하는 거래처가 없습니다</div>`;
+  return matches.map(c=>`<div class="cust-result-item" onclick="pickOrderCustomer(${c.id})">${c.name}</div>`).join('');
+}
+function onOrderCustSearch(v){
+  state.orderCustSearch=v;
+  const box=document.getElementById('custResults');
+  if(box) box.innerHTML=buildCustResults();
+}
+function pickOrderCustomer(id){
+  state.orderMeta.customerId=id;
+  state.orderCustSearch='';
+  render();
+}
+function clearOrderCustomer(){
+  state.orderMeta.customerId=null;
+  state.orderCustSearch='';
+  render();
+}
+function addLine(){
+  const modelVal = state.selectedModel;
+  if(!modelVal){ alert('모델을 먼저 선택해주세요.'); return; }
+  addLineInline(modelVal);
+}
+function removeLine(id){ state.orderLines = state.orderLines.filter(l=>l.id!==id); render(); }
+function stepLineQty(id, delta){
+  const l=state.orderLines.find(x=>x.id===id);
+  if(!l) return;
+  l.qty=Math.max(1, l.qty+delta);
+  l.amount=l.unitPrice*l.qty;
+  l.shippingTotal=(l.shipVat==='none')?0:l.shippingFee*l.qty;
+  render();
+}
+function changeLineShip(id, v){
+  const l=state.orderLines.find(x=>x.id===id);
+  if(!l) return;
+  l.shipVat=v;
+  l.shippingTotal=(v==='none')?0:l.shippingFee*l.qty;
+  render();
+}
+
+/* =================== 거래명세서 =================== */
+function calcTotals(){
+  const productTotal = state.orderLines.reduce((s,l)=>s+l.amount,0);
+  const shipSep = state.orderLines.filter(l=>l.shipVat==='separate').reduce((s,l)=>s+(l.shippingTotal||0),0);
+  const shipInc = state.orderLines.filter(l=>l.shipVat==='included').reduce((s,l)=>s+(l.shippingTotal||0),0);
+  const supply = productTotal + shipSep;
+  const vat = Math.round(supply*0.1);
+  const grand = supply + vat + shipInc;
+  return {productTotal, shipSep, shipInc, supply, vat, grand};
+}
+function renderInvoiceTab(){
+  if(state.orderLines.length===0){
+    return `<div class="card"><div class="empty">담은 품목이 없습니다.<br><br><button class="btn accent" onclick="setTab('order')">← 발주 작성으로</button></div></div>`;
+  }
+  const cust = currentCustomer();
+  const sup = currentSupplier();
+  const t = calcTotals();
+  const rows = state.orderLines.map(l=>{
+    const shipLabel = l.shipVat==='none' ? '무료' : (l.shippingTotal ? `${fmt(l.shippingTotal)}<span class="badge-vat">${l.shipVat==='included'?'포함':'별도'}</span>` : '-');
+    return `<tr>
+      <td class="col-model">${l.model}</td>
+      <td class="r num">${fmt(l.unitPrice)}</td>
+      <td class="r num">${l.qty}</td>
+      <td class="r num">${fmt(l.amount)}</td>
+      <td class="r num">${shipLabel}</td>
+      <td><span class="pill ${brandClass(l.brand)}">${l.brand}</span></td></tr>`;
+  }).join('');
+
+  return `
+  <div class="card">
+    <div class="row" style="justify-content:space-between;align-items:center;">
+      <button class="btn ghost sm" onclick="setTab('order')">← 발주 수정</button>
+      <div class="row" style="gap:8px;">
+        <button class="btn accent sm" id="pdfBtn" onclick="makePDF()">📄 PDF 다운로드</button>
+        <button class="btn sm" onclick="openSmsModal()">✉ 문자 발송</button>
+        <button class="btn sm" onclick="openKakaoModal()">💬 카톡 발송</button>
+        <button class="btn sm" onclick="saveToHistory()" style="background:var(--teal);">💾 이력 저장</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="invoice" id="invoiceArea">
+    <div class="invoice-head">
+      <h2>거래명세서</h2>
+      <div class="meta">발주일자 : ${state.orderMeta.date}</div>
+    </div>
+    <div class="invoice-meta-row">
+      <div><b>공급자</b> : ${sup?sup.name:'-'}</div>
+      <div><b>공급받는자</b> : ${cust?cust.name:'미지정'}</div>
+    </div>
+    <div class="table-wrap">
+      <table class="invoice-table">
+        <thead><tr><th>모델명</th><th class="r">판매단가</th><th class="r">수량</th><th class="r">판매금액</th><th class="r">택배비</th><th>브랜드</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+    <div class="totals">
+      <div class="line"><span>공급가액 (부가세 별도)</span><span class="num">${fmt(t.supply)}원</span></div>
+      <div class="line"><span>부가세 (10%)</span><span class="num">${fmt(t.vat)}원</span></div>
+      ${t.shipInc?`<div class="line"><span>택배비 (부가세 포함가, 별도청구)</span><span class="num">${fmt(t.shipInc)}원</span></div>`:''}
+      <div class="line grand"><span>합계금액</span><span class="num">${fmt(t.grand)}원</span></div>
+    </div>
+    ${sup && (sup.bank||sup.account) ? `
+    <div class="pay-box">
+      <div class="pay-title">입금 계좌</div>
+      <div class="pay-line"><b>${sup.bank||''} ${sup.account||''}</b>${sup.holder?` <span class="muted">(${sup.holder})</span>`:''}</div>
+      ${sup.bizNo?`<div class="pay-sub">${sup.name} · 사업자번호 ${sup.bizNo}</div>`:''}
+    </div>` : ''}
+  </div>`;
+}
+
+/* =================== 발주 이력 =================== */
+function saveToHistory(silent){
+  if(state.orderLines.length===0){ if(!silent) alert('담은 품목이 없습니다.'); return; }
+  const cust=currentCustomer();
+  const sup=currentSupplier();
+  const t=calcTotals();
+  // 자동저장 중복 방지: 같은 거래처+날짜+품목수+합계가 최근 이력과 같으면 저장 안 함
+  const sig=(cust?cust.name:'')+'|'+state.orderMeta.date+'|'+state.orderLines.length+'|'+t.grand;
+  if(silent && state.orderHistory[0] && state.orderHistory[0]._sig===sig) return;
+  const entry={
+    id:nextId(),
+    _sig:sig,
+    savedAt:new Date().toISOString(),
+    date:state.orderMeta.date,
+    customerId:state.orderMeta.customerId,
+    customerName:cust?cust.name:'미지정',
+    supplierId:state.orderMeta.supplierId,
+    supplierName:sup?sup.name:'',
+    lines:JSON.parse(JSON.stringify(state.orderLines)),
+    grand:t.grand
+  };
+  state.orderHistory.unshift(entry);
+  saveData();
+  if(!silent){ toast('발주 이력을 저장했습니다'); render(); }
+}
+function renderHistoryTab(){
+  const q=(state.historySearch||'').trim();
+  let list=state.orderHistory;
+  if(q) list=list.filter(h=>h.customerName.includes(q)||h.date.includes(q));
+  const rows=list.map(h=>{
+    const items=h.lines.map(l=>`${l.model} ${l.qty}대`).join(', ');
+    return `<tr>
+      <td>${h.date}</td>
+      <td>${h.customerName}</td>
+      <td class="muted" style="font-size:12px;max-width:280px;white-space:normal;">${items}</td>
+      <td class="r num">${fmt(h.grand)}원</td>
+      <td class="r">
+        <button class="btn ghost sm" onclick="viewHistory(${h.id})">보기</button>
+        <button class="btn ghost sm" onclick="reuseHistory(${h.id})">재사용</button>
+        <button class="btn danger" onclick="deleteHistory(${h.id})">삭제</button>
+      </td></tr>`;
+  }).join('');
+  return `<div class="card">
+    <h2>발주 이력 <span class="badge-vat">${state.orderHistory.length}건</span></h2>
+    <p class="desc">거래명세서에서 <b>💾 이력 저장</b>을 누른 발주가 여기 쌓입니다. 나중에 조회하거나, 같은 거래처 재발주 시 불러와서 수량만 고쳐 쓸 수 있어요.</p>
+    <label class="f" style="margin-bottom:12px;">🔍 검색 (거래처명 또는 날짜)
+      <input type="text" id="historySearch" placeholder="예: 하나보일러 또는 2026-07" value="${q.replace(/"/g,'&quot;')}" oninput="onHistorySearch(this.value)" style="max-width:340px;"></label>
+    <div class="table-wrap"><table>
+      <thead><tr><th>일자</th><th>거래처</th><th>품목</th><th class="r">합계</th><th></th></tr></thead>
+      <tbody id="historyTbody">${rows||`<tr><td colspan="5" class="empty">${q?'검색 결과가 없습니다.':'저장된 발주 이력이 없습니다.'}</td></tr>`}</tbody>
+    </table></div>
+  </div>`;
+}
+function onHistorySearch(v){
+  state.historySearch=v;
+  const tb=document.getElementById('historyTbody');
+  if(!tb) return;
+  const q=(v||'').trim();
+  let list=state.orderHistory;
+  if(q) list=list.filter(h=>h.customerName.includes(q)||h.date.includes(q));
+  tb.innerHTML=list.map(h=>{
+    const items=h.lines.map(l=>`${l.model} ${l.qty}대`).join(', ');
+    return `<tr><td>${h.date}</td><td>${h.customerName}</td><td class="muted" style="font-size:12px;max-width:280px;white-space:normal;">${items}</td><td class="r num">${fmt(h.grand)}원</td><td class="r"><button class="btn ghost sm" onclick="viewHistory(${h.id})">보기</button> <button class="btn ghost sm" onclick="reuseHistory(${h.id})">재사용</button> <button class="btn danger" onclick="deleteHistory(${h.id})">삭제</button></td></tr>`;
+  }).join('')||`<tr><td colspan="5" class="empty">검색 결과가 없습니다.</td></tr>`;
+}
+function loadHistoryIntoOrder(id){
+  const h=state.orderHistory.find(x=>x.id===id);
+  if(!h) return false;
+  state.orderMeta.customerId=h.customerId;
+  state.orderMeta.supplierId=h.supplierId;
+  state.orderMeta.date=h.date;
+  state.orderLines=JSON.parse(JSON.stringify(h.lines));
+  state.selectedModel=null; state.selectedBrands=[];
+  return true;
+}
+function viewHistory(id){ if(loadHistoryIntoOrder(id)){ setTab('invoice'); } }
+function reuseHistory(id){
+  if(loadHistoryIntoOrder(id)){
+    state.orderMeta.date=new Date().toISOString().slice(0,10); // 오늘 날짜로
+    setTab('order');
+    toast('불러왔습니다. 수량만 고쳐서 다시 발주하세요');
+  }
+}
+function deleteHistory(id){
+  if(!confirm('이 발주 이력을 삭제할까요?')) return;
+  state.orderHistory=state.orderHistory.filter(h=>h.id!==id);
+  saveData(); render();
+}
+
+async function makePDF(){
+  const btn = document.getElementById('pdfBtn');
+  const area = document.getElementById('invoiceArea');
+  if(!area) return;
+  btn.disabled = true; btn.textContent = '만드는 중…';
+  try{
+    const canvas = await html2canvas(area, {scale:2, backgroundColor:'#ffffff'});
+    const img = canvas.toDataURL('image/png');
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF('p','mm','a4');
+    const pw = pdf.internal.pageSize.getWidth();
+    const ph = pdf.internal.pageSize.getHeight();
+    const margin = 10;
+    const iw = pw - margin*2;
+    const ih = canvas.height * iw / canvas.width;
+    let y = margin, rest = ih;
+    // 여러 페이지 분할
+    if(ih <= ph - margin*2){
+      pdf.addImage(img, 'PNG', margin, y, iw, ih);
+    } else {
+      let position = margin;
+      let remaining = ih;
+      // 단순 분할: 이미지 하나를 여러 페이지에 걸쳐 표시
+      pdf.addImage(img, 'PNG', margin, position, iw, ih);
+      remaining -= (ph - margin*2);
+      while(remaining > 0){
+        pdf.addPage();
+        position = margin - (ih - remaining);
+        pdf.addImage(img, 'PNG', margin, position, iw, ih);
+        remaining -= (ph - margin*2);
+      }
+    }
+    const cust = currentCustomer();
+    const fname = `거래명세서_${cust?cust.name:'발주'}_${state.orderMeta.date}.pdf`;
+    pdf.save(fname);
+    toast('PDF를 저장했습니다');
+  }catch(e){
+    alert('PDF 생성 중 오류가 발생했습니다: '+e.message);
+  }finally{
+    btn.disabled = false; btn.textContent = '📄 PDF 다운로드';
+  }
+}
+
+function openSmsModal(){
+  const cust=currentCustomer();
+  const connected = apiKey && apiSecret && fromNum;
+  const preview = buildOrderSmsText();
+  const defaultTo = cust && cust.phone ? cust.phone : '';
+  document.getElementById('modalRoot').innerHTML = `
+  <div class="modal-bg" onclick="if(event.target===this) closeModal()">
+    <div class="modal">
+      <h3>✉ 문자 발송</h3>
+      ${connected ? '' : `<div class="lock-hint" style="margin-bottom:12px;">먼저 [설정 → 문자발송]에서 솔라피 정보를 입력하세요.</div>`}
+
+      <div class="send-mode" style="margin-bottom:12px;">
+        <button class="mode-btn on" id="modeImgBtn" onclick="setSmsMode('img')">🖼 명세서 이미지로 보내기 <span class="muted">(MMS)</span></button>
+        <button class="mode-btn" id="modeTxtBtn" onclick="setSmsMode('txt')">📝 글자로 보내기 <span class="muted">(LMS)</span></button>
+      </div>
+
+      <label class="f" style="margin-bottom:10px;">받는 사람 번호
+        <input type="text" id="smsTo" placeholder="010-0000-0000" value="${defaultTo}" style="width:100%;"></label>
+
+      <div id="smsImgArea">
+        <div class="pick-summary" style="margin:0 0 10px;">화면의 거래명세서를 그대로 <b>이미지로 떠서</b> 보냅니다. 표·단가·합계가 그림으로 전달돼요. <span class="muted">(건당 요금이 글자문자보다 높아요)</span></div>
+      </div>
+      <div id="smsTxtArea" style="display:none;">
+        <label class="f" style="margin-bottom:10px;">보낼 내용 (수정 가능)
+          <textarea id="smsText" style="width:100%;min-height:160px;border:1px solid var(--line);border-radius:8px;padding:10px;font-family:inherit;font-size:13px;line-height:1.5;">${preview}</textarea></label>
+      </div>
+
+      <div id="smsResult" style="font-size:13px;margin-top:4px;"></div>
+      <div class="modal-actions">
+        <button class="btn ghost" onclick="closeModal()">닫기</button>
+        <button class="btn accent" id="smsSendBtn" onclick="doSend()" ${connected?'':'disabled'}>이미지로 보내기</button>
+      </div>
+    </div>
+  </div>`;
+  state.smsMode='img';
+}
+function setSmsMode(m){
+  state.smsMode=m;
+  document.getElementById('modeImgBtn').classList.toggle('on', m==='img');
+  document.getElementById('modeTxtBtn').classList.toggle('on', m==='txt');
+  document.getElementById('smsImgArea').style.display = m==='img'?'block':'none';
+  document.getElementById('smsTxtArea').style.display = m==='txt'?'block':'none';
+  const btn=document.getElementById('smsSendBtn');
+  if(btn) btn.textContent = m==='img'?'이미지로 보내기':'문자 보내기';
+}
+async function doSend(){
+  if(state.smsMode==='img') return doSendMms();
+  return doSendSms();
+}
+async function doSendMms(){
+  const to=document.getElementById('smsTo').value.trim();
+  const rd=document.getElementById('smsResult');
+  const btn=document.getElementById('smsSendBtn');
+  if(!to){ rd.innerHTML='<span style="color:var(--danger)">받는 번호를 입력하세요.</span>'; return; }
+  btn.disabled=true; btn.textContent='이미지 만드는 중…';
+  try{
+    const cust=currentCustomer();
+    const subject='['+(cust?cust.name:'발주')+'] 거래명세서';
+    const text='거래명세서를 보내드립니다. 합계 '+fmt(calcTotals().grand)+'원 (VAT포함)';
+    rd.innerHTML='<span class="muted">명세서 이미지를 만드는 중…</span>';
+    const b64=await invoiceToJpegBase64();
+    btn.textContent='업로드 중…';
+    rd.innerHTML='<span class="muted">이미지 업로드 중…</span>';
+    const fileId=await uploadMmsImage(b64);
+    btn.textContent='보내는 중…';
+    rd.innerHTML='<span class="muted">발송 중…</span>';
+    await sendMms(to, subject, text, fileId);
+    rd.innerHTML='<span style="color:var(--teal)">✓ 이미지 문자(MMS)를 발송했습니다.</span>';
+    btn.textContent='발송됨';
+    saveToHistory(true);
+    toast('이미지 문자를 발송했습니다');
+    setTimeout(closeModal, 1400);
+  }catch(err){
+    rd.innerHTML='<span style="color:var(--danger)">발송 실패: '+err.message+'</span>';
+    btn.disabled=false; btn.textContent='이미지로 보내기';
+  }
+}
+async function doSendSms(){
+  const to=document.getElementById('smsTo').value.trim();
+  const text=document.getElementById('smsText').value;
+  const rd=document.getElementById('smsResult');
+  const btn=document.getElementById('smsSendBtn');
+  if(!to){ rd.innerHTML='<span style="color:var(--danger)">받는 번호를 입력하세요.</span>'; return; }
+  btn.disabled=true; btn.textContent='보내는 중…';
+  const r=await sendSms(to,text);
+  if(r.ok){
+    rd.innerHTML='<span style="color:var(--teal)">✓ 발송 완료되었습니다.</span>';
+    btn.textContent='발송됨';
+    saveToHistory(true);
+    toast('문자를 발송했습니다');
+    setTimeout(closeModal, 1200);
+  } else {
+    rd.innerHTML='<span style="color:var(--danger)">발송 실패: '+r.error+'</span>';
+    btn.disabled=false; btn.textContent='문자 보내기';
+  }
+}
+function openKakaoModal(){
+  document.getElementById('modalRoot').innerHTML = `
+  <div class="modal-bg" onclick="if(event.target===this) closeModal()">
+    <div class="modal">
+      <h3>💬 카톡 발송</h3>
+      <p>카카오 알림톡은 <b>사전 승인된 템플릿</b>이 있어야 발송할 수 있습니다. 거래명세서처럼 매번 내용이 바뀌는 표는 알림톡 템플릿으로 만들기 어려워, 실무에서는 보통 아래 방법을 씁니다:</p>
+      <div class="pick-summary" style="margin:0 0 12px;">
+        <b>추천:</b> 위에서 <b>PDF를 다운로드</b>한 뒤, 카카오톡에서 거래처 채팅방에 그 PDF 파일을 첨부해 보내세요. 표·금액이 그대로 깔끔하게 전달됩니다.
+      </div>
+      <p>단순 요약(합계금액 등)만 카톡 알림톡으로 보내고 싶다면, 솔라피에 발주용 알림톡 템플릿을 하나 등록한 뒤 연동할 수 있어요. 필요하면 그 설정을 도와드릴게요.</p>
+      <div class="modal-actions">
+        <button class="btn ghost" onclick="closeModal()">닫기</button>
+        <button class="btn accent" onclick="closeModal(); makePDF();">PDF 만들어서 카톡으로 보내기</button>
+      </div>
+    </div>
+  </div>`;
+}
+function closeModal(){ document.getElementById('modalRoot').innerHTML=''; }
+
+/* =================== 설정 =================== */
+function renderSettingsTab(){
+  const sub = state.settingsSub;
+  const subNav = `
+    <div class="settings-sub">
+      <button class="${sub==='import'?'on':''}" onclick="setSettingsSub('import')" style="background:${sub==='import'?'':'#FFF8F3'};border-color:var(--accent);color:${sub==='import'?'':'var(--accent-ink)'};">📥 전체 불러오기</button>
+      <button class="${sub==='cost'?'on':''}" onclick="setSettingsSub('cost')">원가표</button>
+      <button class="${sub==='shipping'?'on':''}" onclick="setSettingsSub('shipping')">택배비표</button>
+      <button class="${sub==='customer'?'on':''}" onclick="setSettingsSub('customer')">거래처</button>
+      <button class="${sub==='supplier'?'on':''}" onclick="setSettingsSub('supplier')">공급자</button>
+      <button class="${sub==='sms'?'on':''}" onclick="setSettingsSub('sms')">문자발송</button>
+    </div>`;
+  let body='';
+  if(sub==='import') body = renderImportAllSettings();
+  else if(sub==='cost') body = renderCostSettings();
+  else if(sub==='shipping') body = renderShipSettings();
+  else if(sub==='sms') body = renderSmsSettings();
+  else if(sub==='supplier') body = renderSupplierSettings();
+  else body = renderCustomerSettings();
+  return subNav + body;
+}
+function setSettingsSub(s){ state.settingsSub=s; render(); }
+
+function renderSmsSettings(){
+  const connected = apiKey && apiSecret && fromNum;
+  return `<div class="card">
+    <h2>문자발송 설정 (솔라피)</h2>
+    <p class="desc">구인문자앱에서 쓰던 것과 <b>같은</b> 솔라피 API 정보를 입력하세요. 이 브라우저에 저장되어 다음에 자동으로 불러옵니다.</p>
+    ${connected ? `<div class="pick-summary" style="margin-top:0;">✓ 연결됨 · 발신번호 <b>${fromNum}</b></div>` : `<div class="lock-hint" style="margin-bottom:14px;">아직 발송 설정이 입력되지 않았습니다.</div>`}
+    <div style="display:flex;flex-direction:column;gap:12px;max-width:420px;">
+      <label class="f">API Key
+        <input type="text" id="cfgApiKey" value="${apiKey}" placeholder="NCS..." style="width:100%;"></label>
+      <label class="f">API Secret
+        <div style="display:flex;gap:6px;">
+          <input type="text" id="cfgApiSecret" value="${apiSecret}" placeholder="여기에 시크릿을 붙여넣으세요" style="flex:1;" oninput="updateSecretLen()">
+          <button type="button" class="btn ghost sm" id="secretToggleBtn" onclick="toggleSecret()">🙈 가리기</button>
+        </div>
+        <span id="secretLen" style="font-size:11px;color:var(--ink-soft);margin-top:2px;">현재 ${apiSecret.length}자${apiSecret&&/\s/.test(apiSecret)?' · ⚠ 공백이 포함되어 있어요':''}</span>
+      </label>
+      <label class="f">발신번호 (솔라피에 사전 등록된 번호)
+        <input type="text" id="cfgFromNum" value="${fromNum}" placeholder="0244464000" style="width:100%;"></label>
+      <button class="btn accent" onclick="saveApiSettings()">저장</button>
+    </div>
+    <p class="desc" style="margin-top:14px;">💡 console.solapi.com/credentials → 개발 → API KEY/Secret 발급. 우측 ⋮ → 허용 IP 관리에서 이 PC의 IP를 추가해야 발송됩니다.</p>
+  </div>
+  <div class="card">
+    <h2>데이터 저장 · 초기화</h2>
+    <p class="desc">원가·택배비·거래처·발송설정은 이 브라우저에 자동 저장되어 <b>새로고침해도 유지</b>됩니다. 아래 버튼으로 항목별로 기본값으로 되돌릴 수 있어요. (되돌리면 그 항목은 지워지니 주의)</p>
+    <div class="row" style="gap:8px;">
+      <button class="btn ghost sm" onclick="resetOne('cost')">원가표만 초기화</button>
+      <button class="btn ghost sm" onclick="resetOne('shipping')">택배비표만 초기화</button>
+      <button class="btn ghost sm" onclick="resetOne('customer')">거래처만 초기화</button>
+      <button class="btn danger sm" onclick="resetAllData()">⚠ 전체 초기화</button>
+    </div>
+  </div>`;
+}
+function resetOne(what){
+  const label = what==='cost'?'원가표':what==='shipping'?'택배비표':'거래처';
+  if(!confirm(label+'을(를) 지우고 기본값으로 되돌립니다. 계속할까요?')) return;
+  try{
+    if(what==='cost') localStorage.removeItem('hw_costItems');
+    else if(what==='shipping') localStorage.removeItem('hw_shippingItems');
+    else if(what==='customer') localStorage.removeItem('hw_customers');
+  }catch(e){}
+  location.reload();
+}
+function resetAllData(){
+  if(!confirm('원가·택배비·거래처를 모두 지우고 기본값으로 되돌립니다. 계속할까요?')) return;
+  try{
+    localStorage.removeItem('hw_costItems');
+    localStorage.removeItem('hw_shippingItems');
+    localStorage.removeItem('hw_customers');
+    localStorage.removeItem('hw_idSeq');
+  }catch(e){}
+  location.reload();
+}
+
+function renderCostSettings(){
+  const filter = state.costBrandFilter;
+  const list = state.costItems.filter(c=> filter==='전체'||c.brand===filter);
+  const rows = list.map(c=>`
+    <tr><td><span class="pill ${brandClass(c.brand)}">${c.brand}</span></td>
+    <td><input type="text" class="inline-model" value="${c.model.replace(/"/g,'&quot;')}" onchange="updateModelName(${c.id},this.value)"></td>
+    <td class="r"><input type="number" class="inline-num" value="${c.cost}" onchange="updateCost(${c.id},this.value)"> 원</td>
+    <td class="r"><button class="btn danger" onclick="removeCost(${c.id})">삭제</button></td></tr>`).join('');
+  const chips = ['전체',...BRANDS].map(b=>`<button class="brand-chip ${filter===b?'on':''}" onclick="setCostFilter('${b}')">${b==='전체'?'<b style="padding:2px 4px;">전체</b>':`<span class="pill ${brandClass(b)}">${b}</span>`}</button>`).join('');
+  return `<div class="card">
+    <h2>원가표</h2>
+    <p class="desc">엑셀 업로드로 등록하거나, 표에서 직접 수정할 수 있어요. <b>모델명 칸을 눌러 이름을 바꾸면</b> 동일 용량 신제품 교체 시 편리합니다 (택배비표의 모델명도 자동으로 함께 바뀜).</p>
+    <div class="row" style="margin-bottom:14px;">
+      <input type="file" id="costFile" accept=".xlsx,.xls" style="display:none" onchange="handleExcel(event,'cost')">
+      <div class="drop-box" id="costDrop"
+           onclick="document.getElementById('costFile').click()"
+           ondragover="dropOver(event,'costDrop')" ondragleave="dropLeave(event,'costDrop')"
+           ondrop="dropFile(event,'cost','costDrop')">
+        📄 <b>엑셀 파일을 여기로 끌어다 놓거나</b> 클릭해서 선택<br>
+        <span class="drop-sub">제조사 / 구분 / 모델명 / 원가 / 0~10가 / 배송비 한 파일</span>
+      </div>
+    </div>
+    <div class="section-title">브랜드 필터</div>
+    <div class="brand-chips" style="margin-bottom:14px;">${chips}</div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>브랜드</th><th>모델명</th><th class="r">원가(부가세별도)</th><th></th></tr></thead>
+      <tbody>${rows||`<tr><td colspan="4" class="empty">등록된 모델이 없습니다.</td></tr>`}</tbody></table></div>
+    <p class="desc" style="margin-top:10px;">총 ${list.length}개 모델</p></div>`;
+}
+function setCostFilter(b){ state.costBrandFilter=b; render(); }
+function updateCost(id,v){ const it=state.costItems.find(c=>c.id===id); if(it) it.cost=parseInt(v||'0',10); saveData(); }
+function updateModelName(id, newName){
+  newName=(newName||'').trim();
+  const it=state.costItems.find(c=>c.id===id);
+  if(!it || !newName) { render(); return; }
+  const oldName=it.model;
+  if(oldName===newName) return;
+  // 같은 브랜드에 같은 이름이 이미 있으면 막기
+  if(state.costItems.some(c=>c.id!==id && c.brand===it.brand && c.model===newName)){
+    alert('같은 브랜드에 이미 "'+newName+'" 모델이 있습니다.'); render(); return;
+  }
+  // 택배비표의 같은 모델명도 함께 변경 (연결 유지)
+  state.shippingItems.forEach(s=>{ if(s.brand===it.brand && s.model===oldName) s.model=newName; });
+  it.model=newName;
+  toast('모델명을 변경했습니다: '+newName);
+  render();
+}
+function removeCost(id){ state.costItems=state.costItems.filter(c=>c.id!==id); render(); }
+function updateShipModelName(id, newName){
+  newName=(newName||'').trim();
+  const it=state.shippingItems.find(s=>s.id===id);
+  if(!it || !newName){ render(); return; }
+  const oldName=it.model;
+  if(oldName===newName) return;
+  if(state.shippingItems.some(s=>s.id!==id && s.brand===it.brand && s.model===newName)){
+    alert('같은 브랜드에 이미 "'+newName+'" 택배비 항목이 있습니다.'); render(); return;
+  }
+  // 원가표의 같은 모델명도 함께 변경 (연결 유지)
+  state.costItems.forEach(c=>{ if(c.brand===it.brand && c.model===oldName) c.model=newName; });
+  it.model=newName;
+  toast('모델명을 변경했습니다: '+newName);
+  render();
+}
+
+function renderShipSettings(){
+  const filter = state.shipBrandFilter;
+  const list = state.shippingItems.filter(s=> filter==='전체'||s.brand===filter);
+  const rows = list.map(s=>`
+    <tr><td><span class="pill ${brandClass(s.brand)}">${s.brand}</span></td>
+    <td><input type="text" class="inline-model" value="${s.model.replace(/"/g,'&quot;')}" onchange="updateShipModelName(${s.id},this.value)"></td>
+    <td class="r"><input type="number" class="inline-num" value="${s.fee}" onchange="updateShip(${s.id},this.value)"> 원</td>
+    <td class="r"><button class="btn danger" onclick="removeShip(${s.id})">삭제</button></td></tr>`).join('');
+  const chips = ['전체',...BRANDS].map(b=>`<button class="brand-chip ${filter===b?'on':''}" onclick="setShipFilter('${b}')">${b==='전체'?'<b style="padding:2px 4px;">전체</b>':`<span class="pill ${brandClass(b)}">${b}</span>`}</button>`).join('');
+  return `<div class="card">
+    <h2>택배비표</h2>
+    <p class="desc">엑셀 업로드로 등록하거나, 표에서 택배비·모델명을 바로 수정할 수 있어요. <b>모델명을 바꾸면 원가표의 같은 모델명도 자동으로 함께 바뀝니다.</b> 목록에 없는 모델은 택배비 없음으로 처리됩니다.</p>
+    <div class="row" style="margin-bottom:14px;">
+      <input type="file" id="shipFile" accept=".xlsx,.xls" style="display:none" onchange="handleExcel(event,'shipping')">
+      <div class="drop-box" id="shipDrop"
+           onclick="document.getElementById('shipFile').click()"
+           ondragover="dropOver(event,'shipDrop')" ondragleave="dropLeave(event,'shipDrop')"
+           ondrop="dropFile(event,'shipping','shipDrop')">
+        📄 <b>엑셀 파일을 여기로 끌어다 놓거나</b> 클릭해서 선택<br>
+        <span class="drop-sub">제조사 / 구분 / 모델명 / 원가 / 0~10가 / 배송비 한 파일</span>
+      </div>
+    </div>
+    <div class="section-title">브랜드 필터</div>
+    <div class="brand-chips" style="margin-bottom:14px;">${chips}</div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>브랜드</th><th>모델명</th><th class="r">택배비</th><th></th></tr></thead>
+      <tbody>${rows||`<tr><td colspan="4" class="empty">등록된 택배비가 없습니다.</td></tr>`}</tbody></table></div>
+    <p class="desc" style="margin-top:10px;">총 ${list.length}개 모델</p></div>`;
+}
+function setShipFilter(b){ state.shipBrandFilter=b; render(); }
+function updateShip(id,v){ const it=state.shippingItems.find(s=>s.id===id); if(it) it.fee=parseInt(v||'0',10); saveData(); }
+function removeShip(id){ state.shippingItems=state.shippingItems.filter(s=>s.id!==id); render(); }
+
+/* =============== 전체 불러오기 (엑셀 여러 개 한 번에 자동 구분) =============== */
+function renderImportAllSettings(){
+  return `<div class="card">
+    <h2>📥 전체 불러오기</h2>
+    <p class="desc">마이박스(또는 어디서든)에서 받은 엑셀 파일들을 <b>한꺼번에 끌어다 놓으면</b>, 파일 내용을 보고 원가/거래처/연락처/공급자를 알아서 구분해 채웁니다. 집·창고·사무실 어디서든 이 4개 파일만 있으면 앱이 똑같이 채워져요.</p>
+    <div class="row" style="margin-bottom:14px;">
+      <input type="file" id="allFile" accept=".xlsx,.xls" multiple style="display:none" onchange="handleAllExcel(event)">
+      <div class="drop-box" id="allDrop" style="border-color:var(--accent);border-width:2.5px;padding:30px 16px;"
+           onclick="document.getElementById('allFile').click()"
+           ondragover="dropOver(event,'allDrop')" ondragleave="dropLeave(event,'allDrop')"
+           ondrop="dropAllFiles(event)">
+        📦 <b>엑셀 파일들을 여기로 한꺼번에 끌어다 놓기</b><br>
+        <span class="drop-sub">전기온수기발주계산 · 거래처 · 전화번호 · 사업자등록번호 (4개 한 번에 가능)</span>
+      </div>
+    </div>
+    <div id="allResult"></div>
+    <div class="card" style="background:#F7F9FB;margin-top:4px;">
+      <div class="section-title">이렇게 구분해요</div>
+      <p class="desc" style="margin:0;line-height:1.8;">
+      • <b>원가·판매가·택배비</b> → 열에 "원가/0가/배송비"가 있는 파일<br>
+      • <b>거래처 등록</b> → 열에 "거래처명"이 있고 채권/코드 형식인 파일<br>
+      • <b>거래처 연락처</b> → "거래처명 + 핸드폰번호(B·H열)"가 있는 파일<br>
+      • <b>공급자 정보</b> → 열에 "공급자/사업자번호/통장번호"가 있는 파일</p>
+    </div>
+  </div>`;
+}
+function handleAllExcel(evt){ const fs=evt.target.files; if(fs&&fs.length) processAllFiles(Array.from(fs)); evt.target.value=''; }
+function dropAllFiles(e){
+  e.preventDefault();
+  const el=document.getElementById('allDrop'); if(el) el.classList.remove('drag-on');
+  const fs=e.dataTransfer.files;
+  if(!fs||!fs.length) return;
+  const arr=Array.from(fs).filter(f=>/\.(xlsx|xls)$/i.test(f.name));
+  if(arr.length===0){ alert('엑셀 파일(.xlsx, .xls)만 올릴 수 있어요.'); return; }
+  processAllFiles(arr);
+}
+async function processAllFiles(files){
+  const results=[];
+  const parsed=[];
+  for(const file of files){
+    try{
+      const buf=await file.arrayBuffer();
+      const wb=XLSX.read(new Uint8Array(buf),{type:'array'});
+      const sheet=wb.Sheets[wb.SheetNames[0]];
+      const aoa=XLSX.utils.sheet_to_json(sheet,{header:1,defval:''});
+      parsed.push({name:file.name, aoa, kind:detectFileKind(aoa)});
+    }catch(err){ results.push({name:file.name, kind:'오류', msg:err.message}); }
+  }
+  // 처리 순서: 원가 → 거래처 → 연락처 → 공급자 (거래처 먼저 있어야 연락처 매칭됨)
+  const order={cost:1, customer:2, custphone:3, supplier:4, unknown:9};
+  parsed.sort((a,b)=>(order[a.kind]||9)-(order[b.kind]||9));
+  parsed.forEach(p=>{ results.push(applyFileByKind(p.kind, p.aoa, p.name)); });
+  saveData(); render();
+  setTimeout(()=>{
+    const box=document.getElementById('allResult');
+    if(box){
+      box.innerHTML=`<div class="card" style="margin-top:4px;"><div class="section-title">불러오기 결과</div>`+
+        results.map(r=>`<div style="font-size:13.5px;padding:5px 0;border-bottom:1px solid var(--line);"><b>${r.name}</b> → ${r.kind}${r.msg?` <span class="muted">(${r.msg})</span>`:''}</div>`).join('')+`</div>`;
+    }
+  },50);
+  toast(files.length+'개 파일을 처리했습니다');
+}
+function headerSet(aoa){
+  // 첫 5행 안에서 헤더 행을 찾아 열 이름 집합 반환
+  for(let i=0;i<Math.min(5,aoa.length);i++){
+    const row=aoa[i].map(x=>String(x||'').trim());
+    if(row.some(c=>c)) {
+      const joined=row.join('|');
+      if(joined.includes('원가')||joined.includes('거래처명')||joined.includes('공급자')||joined.includes('핸드폰')) return {row, idx:i};
+    }
+  }
+  return {row:(aoa[0]||[]).map(x=>String(x||'').trim()), idx:0};
+}
+function detectFileKind(aoa){
+  const {row}=headerSet(aoa);
+  const h=row.join('|');
+  if(h.includes('공급자')&&(h.includes('사업자번호')||h.includes('통장번호'))) return 'supplier';
+  if(h.includes('핸드폰')||h.includes('휴대폰')) return 'custphone';
+  if(h.includes('원가')||h.includes('0가')||h.includes('배송비')) return 'cost';
+  if(h.includes('거래처명')) return 'customer';
+  return 'unknown';
+}
+function applyFileByKind(kind, aoa, fname){
+  if(kind==='cost') return {name:fname, ...applyCostAoa(aoa)};
+  if(kind==='customer') return {name:fname, ...applyCustomerAoa(aoa)};
+  if(kind==='custphone') return {name:fname, ...applyCustPhoneAoa(aoa)};
+  if(kind==='supplier') return {name:fname, ...applySupplierAoa(aoa)};
+  return {name:fname, kind:'구분 실패', msg:'열 제목을 인식하지 못했습니다'};
+}
+// 헤더행 인덱스 찾기 (열이름 포함)
+function findHeaderRow(aoa, keys){
+  for(let i=0;i<Math.min(6,aoa.length);i++){
+    const row=aoa[i].map(x=>String(x||'').trim());
+    if(keys.some(k=>row.includes(k))) return i;
+  }
+  return 0;
+}
+function applyCostAoa(aoa){
+  const hi=findHeaderRow(aoa,['모델명','원가']);
+  const header=aoa[hi].map(x=>String(x||'').trim());
+  const col=name=>header.indexOf(name);
+  const cB=col('제조사')>=0?col('제조사'):col('브랜드');
+  const cG=col('구분'), cM=col('모델명'), cC=col('원가'), cS=col('배송비')>=0?col('배송비'):col('택배비');
+  const gCols={}; PRICE_GROUP_KEYS.forEach(g=>gCols[g]=col(g));
+  let n=0;
+  for(let i=hi+1;i<aoa.length;i++){
+    const r=aoa[i]; const model=String(r[cM]||'').trim(); if(!model) continue;
+    const brand=String(r[cB]||'').trim()||BRANDS[0];
+    const gubun=cG>=0?String(r[cG]||'').trim():'';
+    const cost=parseInt(r[cC]||0,10)||0;
+    const prices={}; PRICE_GROUP_KEYS.forEach(g=>{ const v=gCols[g]>=0?r[gCols[g]]:''; prices[g]=(v===''||v==null)?null:(parseInt(v,10)||0); });
+    const ex=state.costItems.find(c=>c.brand===brand&&c.model===model);
+    if(ex){ ex.cost=cost; ex.gubun=gubun; ex.prices=prices; }
+    else state.costItems.push({id:nextId(),brand,gubun,model,cost,prices});
+    // 배송비
+    if(cS>=0){ const fee=parseInt(r[cS]||0,10)||0; const se=state.shippingItems.find(s=>s.brand===brand&&s.model===model); if(se) se.fee=fee; else state.shippingItems.push({id:nextId(),brand,model,fee}); }
+    n++;
+  }
+  return {kind:'원가·판매가·택배비', msg:n+'개 모델 반영'};
+}
+function applyCustomerAoa(aoa){
+  const hi=findHeaderRow(aoa,['거래처명']);
+  const header=aoa[hi].map(x=>String(x||'').trim());
+  const cN=header.indexOf('거래처명');
+  const existing=new Set(state.customers.map(c=>c.name));
+  let added=0;
+  for(let i=hi+1;i<aoa.length;i++){
+    let n=String(aoa[i][cN]||'').trim();
+    if(!n||n==='[]'||n.includes('합계')||n.includes('소계')) continue;
+    if(existing.has(n)) continue;
+    state.customers.push({id:nextId(), name:n, phone:'', priceGroups:makePriceGroups('5가'), shipVat:'included'});
+    existing.add(n); added++;
+  }
+  return {kind:'거래처 등록', msg:added+'곳 신규 추가 (기존 유지)'};
+}
+function applyCustPhoneAoa(aoa){
+  const hi=findHeaderRow(aoa,['거래처명']);
+  const header=aoa[hi].map(x=>String(x||'').trim());
+  let cN=header.indexOf('거래처명'); if(cN<0) cN=1;
+  let cP=header.indexOf('핸드폰번호'); if(cP<0) cP=header.indexOf('휴대폰번호'); if(cP<0) cP=7;
+  const map={};
+  for(let i=hi+1;i<aoa.length;i++){
+    const name=String(aoa[i][cN]||'').trim(); const phone=String(aoa[i][cP]||'').trim();
+    if(!name||!phone) continue;
+    const d=phone.replace(/[^0-9]/g,'');
+    if(!(d.startsWith('010')&&d.length===11)) continue;
+    if(!map[name]) map[name]=d.slice(0,3)+'-'+d.slice(3,7)+'-'+d.slice(7);
+  }
+  let filled=0;
+  state.customers.forEach(c=>{ if(map[c.name]){ c.phone=map[c.name]; filled++; } });
+  return {kind:'거래처 연락처', msg:filled+'곳 번호 채움 (이름 일치)'};
+}
+function applySupplierAoa(aoa){
+  const hi=findHeaderRow(aoa,['공급자']);
+  const header=aoa[hi].map(x=>String(x||'').trim());
+  const cN=header.indexOf('공급자'), cB=header.indexOf('사업자번호'), cA=header.indexOf('통장번호'), cBank=header.indexOf('은행'), cH=header.indexOf('예금주');
+  let n=0;
+  for(let i=hi+1;i<aoa.length;i++){
+    let name=String(aoa[i][cN]||'').trim(); if(!name) continue;
+    // 상호에서 (주) 등 제거해서 매칭 시도
+    const bare=name.replace(/\(주\)|주식회사|㈜/g,'').trim();
+    let sup=state.suppliers.find(s=>s.name===name||s.name===bare||name.includes(s.name)||s.name.includes(bare));
+    if(!sup){ continue; }
+    if(cB>=0) sup.bizNo=String(aoa[i][cB]||'').trim();
+    if(cA>=0) sup.account=String(aoa[i][cA]||'').trim();
+    if(cBank>=0) sup.bank=String(aoa[i][cBank]||'').trim();
+    if(cH>=0) sup.holder=String(aoa[i][cH]||'').trim();
+    n++;
+  }
+  return {kind:'공급자 정보', msg:n+'곳 반영'};
+}
+
+function renderSupplierSettings(){
+  const rows = state.suppliers.map(s=>`
+    <div class="sup-card">
+      <div class="sup-name">${s.name}</div>
+      <div class="sup-grid">
+        <label class="f">상호<input type="text" value="${(s.name||'').replace(/"/g,'&quot;')}" onchange="updateSupplier(${s.id},'name',this.value)"></label>
+        <label class="f">사업자번호<input type="text" value="${(s.bizNo||'').replace(/"/g,'&quot;')}" placeholder="000-00-00000" onchange="updateSupplier(${s.id},'bizNo',this.value)"></label>
+        <label class="f">은행<input type="text" value="${(s.bank||'').replace(/"/g,'&quot;')}" placeholder="예: 국민은행" onchange="updateSupplier(${s.id},'bank',this.value)"></label>
+        <label class="f">계좌번호<input type="text" value="${(s.account||'').replace(/"/g,'&quot;')}" placeholder="계좌번호" onchange="updateSupplier(${s.id},'account',this.value)"></label>
+        <label class="f">예금주<input type="text" value="${(s.holder||'').replace(/"/g,'&quot;')}" placeholder="예금주명" onchange="updateSupplier(${s.id},'holder',this.value)"></label>
+      </div>
+    </div>`).join('');
+  return `<div class="card">
+    <h2>공급자 (우리 사업체)</h2>
+    <p class="desc">4개 사업체의 상호·사업자번호·입금계좌를 등록해두면, 발주 작성에서 공급자를 고를 때 그 정보가 <b>거래명세서에 자동으로 찍혀요.</b> 거래처가 명세서만 보고 입금할 수 있고, 계산서도 그 사업자로 끊으면 됩니다.</p>
+    ${rows}
+  </div>`;
+}
+function updateSupplier(id, field, val){
+  const s=state.suppliers.find(x=>x.id===id);
+  if(!s) return;
+  s[field]=(val||'').trim();
+  saveData();
+  if(field==='name') render();
+  else toast('저장되었습니다');
+}
+
+function renderCustomerSettings(){
+  const q = (state.custSearch||'').trim();
+  const list = q ? state.customers.filter(c=>c.name.includes(q)) : state.customers;
+  return `<div class="card">
+    <h2>거래처 <span class="badge-vat">${state.customers.length}곳</span></h2>
+    <p class="desc">엑셀을 끌어다 놓으면 거래처명(D열)을 한 번에 등록합니다. 거래처마다 가격그룹을 한 번 정해두면, 발주 작성에서 그 거래처를 고를 때 <b>항상 그 가격이 고정</b>으로 적용됩니다.</p>
+
+    <div class="row" style="margin-bottom:14px;">
+      <input type="file" id="custFile" accept=".xlsx,.xls" style="display:none" onchange="handleCustExcel(event)">
+      <div class="drop-box" id="custDrop"
+           onclick="document.getElementById('custFile').click()"
+           ondragover="dropOver(event,'custDrop')" ondragleave="dropLeave(event,'custDrop')"
+           ondrop="dropCustFile(event)">
+        📄 <b>거래처명 엑셀을 여기로 끌어다 놓거나</b> 클릭해서 선택<br>
+        <span class="drop-sub">D열(거래처명)을 읽어 새 거래처로 등록합니다. 기존과 겹치는 이름은 건너뜁니다.</span>
+      </div>
+    </div>
+
+    <div class="row" style="margin-bottom:14px;">
+      <input type="file" id="custPhoneFile" accept=".xlsx,.xls" style="display:none" onchange="handleCustPhoneExcel(event)">
+      <div class="drop-box" id="custPhoneDrop" style="border-color:var(--teal);"
+           onclick="document.getElementById('custPhoneFile').click()"
+           ondragover="dropOver(event,'custPhoneDrop')" ondragleave="dropLeave(event,'custPhoneDrop')"
+           ondrop="dropCustPhoneFile(event)">
+        📞 <b>거래처 연락처 엑셀을 여기로 끌어다 놓거나</b> 클릭해서 선택<br>
+        <span class="drop-sub">B열(거래처명)·H열(전화번호)을 읽어, <b>이미 등록된 거래처의 휴대폰(010)만</b> 채웁니다. 새 거래처는 추가하지 않아요.</span>
+      </div>
+    </div>
+
+    <div class="row" style="margin-bottom:14px;align-items:flex-end;">
+      <label class="f" style="flex:1;">거래처명 직접 추가<input type="text" id="newCustName" placeholder="예: OO설비"></label>
+      <label class="f">연락처<input type="text" id="newCustPhone" placeholder="010-0000-0000"></label>
+      <label class="f">가격그룹<select id="newCustGroup">${PRICE_GROUP_KEYS.map(g=>`<option ${g==='5가'?'selected':''}>${g}</option>`).join('')}</select></label>
+      <label class="f">택배비 방식<select id="newCustShipVat"><option value="none">무료</option><option value="separate">별도</option><option value="included" selected>포함</option></select></label>
+      <button class="btn accent" onclick="addCustomer()">추가</button>
+    </div>
+
+    <div class="row" style="margin-bottom:10px;align-items:flex-end;gap:16px;">
+      <label class="f" style="flex:1;">🔍 거래처 검색
+        <input type="text" id="custSearchBox" placeholder="이름 일부를 입력하세요" oninput="onCustSearch(this.value)" style="max-width:340px;">
+      </label>
+      <label class="f">일괄 변경 브랜드
+        <select id="bulkGroupBrand">
+          <option value="all">전체(4개 브랜드)</option>
+          ${BRANDS.map(b=>`<option value="${b}">${brandShort(b)}</option>`).join('')}
+        </select>
+      </label>
+      <label class="f">가격그룹
+        <select id="bulkGroupSel">
+          <option value="">-- 선택 --</option>
+          ${PRICE_GROUP_KEYS.map(g=>`<option value="${g}">${g}</option>`).join('')}
+        </select>
+      </label>
+      <button class="btn ghost sm" onclick="bulkChangeGroup()">${q?'검색된 곳에':'전체'} 적용</button>
+    </div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>거래처명</th><th>연락처</th><th>브랜드별 가격그룹</th><th>택배비</th><th></th></tr></thead>
+      <tbody id="custTbody">${buildCustSettingRows()}</tbody></table></div>
+    <p class="desc" style="margin-top:10px;" id="custCount">${q?`검색결과 ${list.length}곳`:`총 ${state.customers.length}곳`}</p></div>`;
+}
+function onCustSearch(v){
+  state.custSearch=v;
+  const tbody=document.getElementById('custTbody');
+  if(tbody) tbody.innerHTML=buildCustSettingRows();
+  const cnt=document.getElementById('custCount');
+  if(cnt){ const q=(state.custSearch||'').trim(); const list=q?state.customers.filter(c=>c.name.includes(q)):state.customers; cnt.textContent=q?`검색결과 ${list.length}곳`:`총 ${state.customers.length}곳`; }
+}
+function buildCustSettingRows(){
+  const q=(state.custSearch||'').trim();
+  const list=q?state.customers.filter(c=>c.name.includes(q)):state.customers;
+  if(list.length===0) return `<tr><td colspan="5" class="empty">${q?'검색 결과가 없습니다.':'등록된 거래처가 없습니다.'}</td></tr>`;
+  return list.map(c=>`
+    <tr><td>${c.name}</td>
+    <td><input type="text" class="inline-phone" value="${(c.phone||'').replace(/"/g,'&quot;')}" placeholder="010-0000-0000" onchange="updateCustPhone(${c.id},this.value)"></td>
+    <td><div style="display:flex;gap:4px;flex-wrap:wrap;">${BRANDS.map(b=>`<select class="inline-sel" style="width:auto;" onchange="updateCustGroup(${c.id},'${b}',this.value)" title="${brandShort(b)}">${PRICE_GROUP_KEYS.map(g=>`<option ${(c.priceGroups&&c.priceGroups[b])===g?'selected':''}>${g}</option>`).join('')}</select>`).join('')}</div></td>
+    <td><select class="inline-sel" onchange="updateCustShipVat(${c.id},this.value)"><option value="none" ${c.shipVat==='none'?'selected':''}>무료</option><option value="separate" ${c.shipVat==='separate'?'selected':''}>별도</option><option value="included" ${c.shipVat==='included'?'selected':''}>포함</option></select></td>
+    <td class="r"><button class="btn danger" onclick="removeCustomer(${c.id})">삭제</button></td></tr>`).join('');
+}
+function updateCustPhone(id, v){ const c=state.customers.find(x=>x.id===id); if(c) c.phone=(v||'').trim(); saveData(); }
+function updateCustGroup(id, brand, g){ const c=state.customers.find(x=>x.id===id); if(c){ if(!c.priceGroups) c.priceGroups=makePriceGroups(); c.priceGroups[brand]=g; saveData(); toast(`${brandShort(brand)} 가격그룹 저장: ${g}`); } }
+function bulkChangeGroup(){
+  const brand=document.getElementById('bulkGroupBrand').value;
+  const g=document.getElementById('bulkGroupSel').value;
+  if(!g) return;
+  const q=(state.custSearch||'').trim();
+  const targets = q ? state.customers.filter(c=>c.name.includes(q)) : state.customers;
+  if(targets.length===0){ return; }
+  const scope = q ? `검색된 ${targets.length}곳` : `전체 ${targets.length}곳`;
+  const brandLabel = brand==='all' ? '전체 브랜드' : brandShort(brand);
+  if(!confirm(`${scope}의 ${brandLabel} 가격그룹을 모두 [${g}]로 바꿀까요?`)){ return; }
+  targets.forEach(c=>{
+    if(!c.priceGroups) c.priceGroups=makePriceGroups();
+    if(brand==='all') BRANDS.forEach(b=>c.priceGroups[b]=g);
+    else c.priceGroups[brand]=g;
+  });
+  saveData();
+  render();
+  toast(`${targets.length}곳을 ${g}로 변경했습니다`);
+}
+function updateCustShipVat(id, v){ const c=state.customers.find(x=>x.id===id); if(c) c.shipVat=v; saveData(); }
+function addCustomer(){
+  const name=document.getElementById('newCustName').value.trim();
+  if(!name){ alert('거래처명을 입력해주세요.'); return; }
+  if(state.customers.some(c=>c.name===name)){ alert('이미 등록된 거래처입니다.'); return; }
+  const phone=document.getElementById('newCustPhone').value.trim();
+  state.customers.push({id:nextId(), name, phone, priceGroups:makePriceGroups(document.getElementById('newCustGroup').value), shipVat:document.getElementById('newCustShipVat').value});
+  render();
+}
+function removeCustomer(id){ state.customers=state.customers.filter(c=>c.id!==id); render(); }
+
+/* 거래처 엑셀 업로드 (D열 = 거래처명) */
+function handleCustExcel(evt){ const f=evt.target.files[0]; if(f) processCustFile(f); evt.target.value=''; }
+function dropCustFile(e){
+  e.preventDefault();
+  const el=document.getElementById('custDrop'); if(el) el.classList.remove('drag-on');
+  const f=e.dataTransfer.files && e.dataTransfer.files[0];
+  if(!f) return;
+  if(!/\.(xlsx|xls)$/i.test(f.name)){ alert('엑셀 파일(.xlsx, .xls)만 올릴 수 있어요.'); return; }
+  processCustFile(f);
+}
+function processCustFile(file){
+  const reader=new FileReader();
+  reader.onload=function(e){
+    try{
+      const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'});
+      const sheet=wb.Sheets[wb.SheetNames[0]];
+      // 헤더 위치가 유동적이라 시트를 배열로 읽어 D열(index 3)에서 이름 수집
+      const aoa=XLSX.utils.sheet_to_json(sheet,{header:1,defval:''});
+      const names=[];
+      aoa.forEach(r=>{
+        let n = r[3]; // D열
+        if(n==null) return;
+        n=String(n).trim();
+        if(!n) return;
+        if(n==='거래처명'||n==='[]') return;
+        if(n.includes('합계')||n.includes('소계')) return;
+        names.push(n);
+      });
+      const seen=new Set(); const uniq=[];
+      names.forEach(n=>{ if(!seen.has(n)){ seen.add(n); uniq.push(n); } });
+      if(uniq.length===0){ alert('D열(거래처명)에서 읽을 데이터가 없습니다.'); return; }
+      state.pendingCustImport=uniq;
+      renderCustImportModal();
+    }catch(err){ alert('엑셀 읽기 오류: '+err.message); }
+  };
+  reader.readAsArrayBuffer(file);
+}
+/* 거래처 연락처 매칭 업로드 (B열=거래처명, H열=전화번호, 010만) */
+function handleCustPhoneExcel(evt){ const f=evt.target.files[0]; if(f) processCustPhoneFile(f); evt.target.value=''; }
+function dropCustPhoneFile(e){
+  e.preventDefault();
+  const el=document.getElementById('custPhoneDrop'); if(el) el.classList.remove('drag-on');
+  const f=e.dataTransfer.files && e.dataTransfer.files[0];
+  if(!f) return;
+  if(!/\.(xlsx|xls)$/i.test(f.name)){ alert('엑셀 파일(.xlsx, .xls)만 올릴 수 있어요.'); return; }
+  processCustPhoneFile(f);
+}
+function processCustPhoneFile(file){
+  const reader=new FileReader();
+  reader.onload=function(e){
+    try{
+      const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'});
+      const sheet=wb.Sheets[wb.SheetNames[0]];
+      const aoa=XLSX.utils.sheet_to_json(sheet,{header:1,defval:''});
+      const map={};
+      aoa.forEach(r=>{
+        let name=r[1], phone=r[7]; // B열, H열
+        if(name==null||phone==null) return;
+        name=String(name).trim(); phone=String(phone).trim();
+        if(!name||name==='거래처명') return;
+        const digits=phone.replace(/[^0-9]/g,'');
+        if(!(digits.startsWith('010')&&digits.length===11)) return;
+        const formatted=digits.slice(0,3)+'-'+digits.slice(3,7)+'-'+digits.slice(7);
+        if(!map[name]) map[name]=formatted;
+      });
+      const matched=[];
+      state.customers.forEach(c=>{ if(map[c.name]) matched.push({id:c.id, name:c.name, phone:map[c.name], had:!!c.phone}); });
+      const totalInFile=Object.keys(map).length;
+      if(matched.length===0){ alert(`엑셀에서 휴대폰 ${totalInFile}건을 읽었지만, 앱에 등록된 거래처와 이름이 일치하는 곳이 없습니다. (이름 표기가 다르면 매칭되지 않아요)`); return; }
+      state.pendingPhoneImport={matched, totalInFile};
+      renderPhoneImportModal();
+    }catch(err){ alert('엑셀 읽기 오류: '+err.message); }
+  };
+  reader.readAsArrayBuffer(file);
+}
+function renderPhoneImportModal(){
+  const {matched, totalInFile}=state.pendingPhoneImport;
+  const preview=matched.slice(0,60).map(m=>`<tr><td>${m.name}</td><td class="num">${m.phone}</td><td>${m.had?'<span class="muted">덮어씀</span>':'신규'}</td></tr>`).join('');
+  document.getElementById('modalRoot').innerHTML=`
+  <div class="modal-bg"><div class="modal">
+    <h3>거래처 연락처 매칭 미리보기</h3>
+    <p>엑셀에서 휴대폰 <b>${totalInFile}건</b>을 읽었고, 그중 앱에 등록된 거래처와 이름이 일치하는 <b>${matched.length}곳</b>에 번호를 채웁니다. 나머지는 건너뜁니다.</p>
+    <div class="table-wrap" style="max-height:300px;overflow-y:auto;"><table>
+      <thead><tr><th>거래처명</th><th>휴대폰</th><th>상태</th></tr></thead>
+      <tbody>${preview}${matched.length>60?`<tr><td colspan="3" class="muted">…외 ${matched.length-60}곳</td></tr>`:''}</tbody></table></div>
+    <div class="modal-actions"><button class="btn ghost" onclick="cancelPhoneImport()">취소</button>
+    <button class="btn accent" onclick="confirmPhoneImport()">${matched.length}곳 번호 채우기</button></div>
+  </div></div>`;
+}
+function cancelPhoneImport(){ state.pendingPhoneImport=null; closeModal(); }
+function confirmPhoneImport(){
+  const {matched}=state.pendingPhoneImport;
+  matched.forEach(m=>{ const c=state.customers.find(x=>x.id===m.id); if(c) c.phone=m.phone; });
+  state.pendingPhoneImport=null; closeModal(); render(); toast(matched.length+'곳에 연락처를 채웠습니다');
+}
+function renderCustImportModal(){
+  const names=state.pendingCustImport;
+  const existing=new Set(state.customers.map(c=>c.name));
+  const newOnes=names.filter(n=>!existing.has(n));
+  const dupCount=names.length-newOnes.length;
+  const preview=newOnes.slice(0,50).map(n=>`<tr><td>${n}</td></tr>`).join('');
+  document.getElementById('modalRoot').innerHTML=`
+  <div class="modal-bg"><div class="modal">
+    <h3>거래처 엑셀 미리보기</h3>
+    <p>D열에서 <b>${names.length}곳</b> 인식 · 새로 추가될 곳 <b>${newOnes.length}곳</b>${dupCount?` · 이미 있어 건너뜀 ${dupCount}곳`:''}. 새 거래처는 아래에서 고른 가격그룹 / 부가세 포함으로 등록되며, 표에서 각자 변경할 수 있습니다.</p>
+    <label class="f" style="margin-bottom:12px;">새 거래처 기본 가격그룹
+      <select id="custImportGroup" style="max-width:160px;">${PRICE_GROUP_KEYS.map(g=>`<option ${g==='5가'?'selected':''}>${g}</option>`).join('')}</select></label>
+    <div class="table-wrap" style="max-height:260px;overflow-y:auto;"><table>
+      <thead><tr><th>추가될 거래처명 (미리보기 ${Math.min(newOnes.length,50)}${newOnes.length>50?'/'+newOnes.length:''})</th></tr></thead>
+      <tbody>${preview||'<tr><td class="empty">새로 추가될 거래처가 없습니다.</td></tr>'}</tbody></table></div>
+    <div class="modal-actions"><button class="btn ghost" onclick="cancelCustImport()">취소</button>
+    <button class="btn accent" onclick="confirmCustImport()" ${newOnes.length?'':'disabled'}>${newOnes.length}곳 추가</button></div>
+  </div></div>`;
+}
+function cancelCustImport(){ state.pendingCustImport=null; closeModal(); }
+function confirmCustImport(){
+  const names=state.pendingCustImport;
+  const g=document.getElementById('custImportGroup').value;
+  const existing=new Set(state.customers.map(c=>c.name));
+  let added=0;
+  names.forEach(n=>{ if(!existing.has(n)){ state.customers.push({id:nextId(), name:n, priceGroups:makePriceGroups(g), shipVat:'included'}); existing.add(n); added++; } });
+  state.pendingCustImport=null; closeModal(); render(); toast(added+'곳을 추가했습니다');
+}
+
+/* =================== 엑셀 업로드 =================== */
+function handleExcel(evt, type){
+  const file = evt.target.files[0]; if(!file) return;
+  processExcelFile(file);
+  evt.target.value='';
+}
+// 드래그앤드롭 핸들러
+function dropOver(e, boxId){ e.preventDefault(); const el=document.getElementById(boxId); if(el) el.classList.add('drag-on'); }
+function dropLeave(e, boxId){ const el=document.getElementById(boxId); if(el) el.classList.remove('drag-on'); }
+function dropFile(e, type, boxId){
+  e.preventDefault();
+  const el=document.getElementById(boxId); if(el) el.classList.remove('drag-on');
+  const file = e.dataTransfer.files && e.dataTransfer.files[0];
+  if(!file){ return; }
+  if(!/\.(xlsx|xls)$/i.test(file.name)){ alert('엑셀 파일(.xlsx, .xls)만 올릴 수 있어요.'); return; }
+  processExcelFile(file);
+}
+function processExcelFile(file){
+  const reader = new FileReader();
+  reader.onload = function(e){
+    try{
+      const wb = XLSX.read(new Uint8Array(e.target.result), {type:'array'});
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const json = XLSX.utils.sheet_to_json(sheet, {defval:''});
+      if(json.length===0){ alert('시트에 데이터가 없습니다.'); return; }
+      const head = json[0];
+      const hasCost = ('원가' in head)||('Cost' in head);
+      const hasShip = ('배송비' in head)||('택배비' in head)||('Shipping' in head);
+      const rows = json.map(r=>{
+        const brand=String(r['브랜드']||r['제조사']||r['Brand']||'').trim();
+        const gubun=String(r['구분']||'').trim();
+        const model=String(r['모델명']||r['모델']||r['Model']||'').trim();
+        const cost=parseInt(r['원가']||r['Cost']||0,10)||0;
+        const fee=parseInt(r['배송비']||r['택배비']||r['Shipping']||0,10)||0;
+        const prices={};
+        PRICE_GROUP_KEYS.forEach(g=>{
+          const v=r[g];
+          prices[g] = (v===''||v==null) ? null : (parseInt(v,10)||0);
+        });
+        return {brand, gubun, model, cost, fee, prices};
+      }).filter(r=>r.model);
+      if(rows.length===0){ alert('인식된 데이터가 없습니다. 열 제목에 "제조사(또는 브랜드), 모델명, 원가, 배송비"가 있는지 확인하세요.'); return; }
+      state.pendingImport={rows, hasCost, hasShip};
+      renderImportModal();
+    }catch(err){ alert('엑셀 읽기 오류: '+err.message); }
+  };
+  reader.readAsArrayBuffer(file);
+}
+function renderImportModal(){
+  const {rows, hasCost, hasShip}=state.pendingImport;
+  let cols = '<th>제조사</th><th>모델명</th>';
+  if(hasCost) cols+='<th class="r">원가</th>';
+  if(hasShip) cols+='<th class="r">배송비</th>';
+  const rowsHtml = rows.map(r=>{
+    let c=`<td>${r.brand||'-'}</td><td>${r.model}${r.gubun?` <span class="badge-vat">${r.gubun}</span>`:''}</td>`;
+    if(hasCost) c+=`<td class="r num">${fmt(r.cost)}</td>`;
+    if(hasShip) c+=`<td class="r num">${fmt(r.fee)}</td>`;
+    return `<tr>${c}</tr>`;
+  }).join('');
+  const what = [hasCost?'원가':null, hasShip?'배송비':null].filter(Boolean).join(' + ');
+  document.getElementById('modalRoot').innerHTML = `
+  <div class="modal-bg"><div class="modal">
+    <h3>엑셀 미리보기 — ${what}</h3>
+    <p>${rows.length}건 인식됨. 반영하면 같은 제조사+모델은 값을 갱신하고, 없는 모델은 새로 추가합니다. ${what}을(를) 한 번에 반영합니다.</p>
+    <div class="table-wrap" style="max-height:300px;overflow-y:auto;"><table>
+      <thead><tr>${cols}</tr></thead><tbody>${rowsHtml}</tbody></table></div>
+    <div class="modal-actions"><button class="btn ghost" onclick="cancelImport()">취소</button>
+    <button class="btn accent" onclick="confirmImport()">반영하기</button></div>
+  </div></div>`;
+}
+function cancelImport(){ state.pendingImport=null; closeModal(); }
+function confirmImport(){
+  const {rows, hasCost, hasShip}=state.pendingImport;
+  rows.forEach(r=>{
+    const brand=r.brand||BRANDS[0];
+    if(hasCost){
+      const ex=state.costItems.find(c=>c.brand===brand&&c.model===r.model);
+      if(ex){ ex.cost=r.cost; if(r.gubun) ex.gubun=r.gubun; ex.prices=r.prices; }
+      else state.costItems.push({id:nextId(),brand,gubun:r.gubun,model:r.model,cost:r.cost,prices:r.prices});
+    }
+    if(hasShip){
+      const ex=state.shippingItems.find(s=>s.brand===brand&&s.model===r.model);
+      if(ex) ex.fee=r.fee; else state.shippingItems.push({id:nextId(),brand,model:r.model,fee:r.fee});
+    }
+  });
+  state.pendingImport=null; closeModal(); render(); toast('엑셀을 반영했습니다');
+}
+
+/* ===== 데이터 영구 저장 (이 브라우저에 기억) ===== */
+function saveData(){
+  try{
+    localStorage.setItem('hw_costItems', JSON.stringify(state.costItems));
+    localStorage.setItem('hw_shippingItems', JSON.stringify(state.shippingItems));
+    localStorage.setItem('hw_customers', JSON.stringify(state.customers));
+    localStorage.setItem('hw_suppliers', JSON.stringify(state.suppliers));
+    localStorage.setItem('hw_history', JSON.stringify(state.orderHistory));
+    localStorage.setItem('hw_idSeq', String(state._idSeq));
+    localStorage.setItem('hw_dataVersion', String(DATA_VERSION));
+  }catch(e){}
+}
+function loadData(){
+  try{
+    const ver = parseInt(localStorage.getItem('hw_dataVersion')||'1',10);
+    const c=localStorage.getItem('hw_costItems');
+    const s=localStorage.getItem('hw_shippingItems');
+    const cu=localStorage.getItem('hw_customers');
+    const sup=localStorage.getItem('hw_suppliers');
+    const seq=localStorage.getItem('hw_idSeq');
+    // 원가·택배비표: 데이터 버전이 낮으면(구 브랜드 구조) 브라우저에 저장된 값 대신 앱에 내장된 새 엑셀 값을 사용
+    if(c && ver>=DATA_VERSION) state.costItems=JSON.parse(c);
+    if(s && ver>=DATA_VERSION) state.shippingItems=JSON.parse(s);
+    if(cu) state.customers=JSON.parse(cu);
+    if(sup) state.suppliers=JSON.parse(sup);
+    const hist=localStorage.getItem('hw_history');
+    if(hist) state.orderHistory=JSON.parse(hist);
+    if(seq) state._idSeq=parseInt(seq,10)||state._idSeq;
+    state.customers.forEach(migrateCustomer);
+  }catch(e){}
+}
+
+loadData();
+loadApiSettings();
+render();
+</script>
+</body>
+</html>
