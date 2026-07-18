@@ -207,7 +207,7 @@
 <header class="app-header">
   <div class="brand-row">
     <h1>전기온수기 발주계산</h1>
-    <span class="tag">부가세 별도 기준 · v6 데이터통합</span>
+    <span class="tag">부가세 별도 기준 · v7 엑셀미리보기</span>
   </div>
   <nav class="tabs" id="tabNav"></nav>
 </header>
@@ -1481,7 +1481,17 @@ function renderSupplierSettings(){
     </div>`).join('');
   return `<div class="card">
     <h2>공급자 (우리 사업체)</h2>
-    <p class="desc">4개 사업체의 상호·사업자번호·입금계좌를 등록해두면, 발주 작성에서 공급자를 고를 때 그 정보가 <b>거래명세서에 자동으로 찍혀요.</b> 거래처가 명세서만 보고 입금할 수 있고, 계산서도 그 사업자로 끊으면 됩니다.</p>
+    <p class="desc">공급자 엑셀을 올리면 적용 전에 신규·수정·변경 없음을 확인할 수 있습니다. <b>적용하기 전에는 저장되지 않습니다.</b></p>
+    <div class="row" style="margin-bottom:14px;">
+      <input type="file" id="supplierFile" accept=".xlsx,.xls" style="display:none" onchange="handleSupplierExcel(event)">
+      <div class="drop-box" id="supplierDrop" style="border-color:var(--teal);"
+           onclick="document.getElementById('supplierFile').click()"
+           ondragover="dropOver(event,'supplierDrop')" ondragleave="dropLeave(event,'supplierDrop')"
+           ondrop="dropSupplierFile(event)">
+        🏦 <b>공급자 엑셀을 여기로 끌어다 놓거나</b> 클릭해서 선택<br>
+        <span class="drop-sub">공급자(또는 상호) · 사업자번호 · 은행 · 계좌번호(통장번호) · 예금주 열을 읽습니다.</span>
+      </div>
+    </div>
     ${rows}
   </div>`;
 }
@@ -1499,7 +1509,7 @@ function renderCustomerSettings(){
   const list = q ? state.customers.filter(c=>c.name.includes(q)) : state.customers;
   return `<div class="card">
     <h2>거래처 <span class="badge-vat">${state.customers.length}곳</span></h2>
-    <p class="desc">엑셀을 끌어다 놓으면 거래처명(D열)을 한 번에 등록합니다. 거래처마다 가격그룹을 한 번 정해두면, 발주 작성에서 그 거래처를 고를 때 <b>항상 그 가격이 고정</b>으로 적용됩니다.</p>
+    <p class="desc">거래처 엑셀을 올리면 사업자번호를 기준으로 <b>신규·수정·변경 없음</b>을 먼저 보여줍니다. 엑셀에 없는 기존 거래처는 삭제하지 않고 삭제 후보로만 표시합니다.</p>
 
     <div class="row" style="margin-bottom:14px;">
       <input type="file" id="custFile" accept=".xlsx,.xls" style="display:none" onchange="handleCustExcel(event)">
@@ -1507,8 +1517,8 @@ function renderCustomerSettings(){
            onclick="document.getElementById('custFile').click()"
            ondragover="dropOver(event,'custDrop')" ondragleave="dropLeave(event,'custDrop')"
            ondrop="dropCustFile(event)">
-        📄 <b>거래처명 엑셀을 여기로 끌어다 놓거나</b> 클릭해서 선택<br>
-        <span class="drop-sub">D열(거래처명)을 읽어 새 거래처로 등록합니다. 기존과 겹치는 이름은 건너뜁니다.</span>
+        📄 <b>거래처 엑셀을 여기로 끌어다 놓거나</b> 클릭해서 선택<br>
+        <span class="drop-sub">거래처명 · 사업자번호 · 대표자 · 전화번호 · 휴대폰 · 이메일을 읽고 적용 전 변경 내용을 보여줍니다.</span>
       </div>
     </div>
 
@@ -1624,123 +1634,110 @@ function dropCustFile(e){
   if(!/\.(xlsx|xls)$/i.test(f.name)){ alert('엑셀 파일(.xlsx, .xls)만 올릴 수 있어요.'); return; }
   processCustFile(f);
 }
+function normalizeImportBizNo(v){ return String(v||'').replace(/[^0-9]/g,''); }
+function normalizeImportName(v){ return String(v||'').trim().replace(/\s+/g,' '); }
+function findImportHeader(aoa, aliases){
+  for(let i=0;i<Math.min(12,aoa.length);i++){
+    const row=(aoa[i]||[]).map(x=>String(x||'').trim());
+    let score=0;
+    Object.values(aliases).forEach(list=>{ if(list.some(a=>row.includes(a))) score++; });
+    if(score>=2 || (score>=1 && Object.values(aliases).flat().some(a=>a==='거래처명'&&row.includes(a)))) return {idx:i,row};
+  }
+  return {idx:0,row:(aoa[0]||[]).map(x=>String(x||'').trim())};
+}
+function aliasCol(header,list){ for(const a of list){ const i=header.indexOf(a); if(i>=0) return i; } return -1; }
+function formatPhoneImport(v){
+  const raw=String(v||'').trim(); const d=raw.replace(/[^0-9]/g,'');
+  if(d.length===11&&d.startsWith('010')) return d.slice(0,3)+'-'+d.slice(3,7)+'-'+d.slice(7);
+  if(d.length===10&&d.startsWith('02')) return d.slice(0,2)+'-'+d.slice(2,6)+'-'+d.slice(6);
+  if(d.length===9&&d.startsWith('02')) return d.slice(0,2)+'-'+d.slice(2,5)+'-'+d.slice(5);
+  if(d.length===10) return d.slice(0,3)+'-'+d.slice(3,6)+'-'+d.slice(6);
+  return raw;
+}
 function processCustFile(file){
   const reader=new FileReader();
   reader.onload=function(e){
     try{
       const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'});
       const sheet=wb.Sheets[wb.SheetNames[0]];
-      // 헤더 위치가 유동적이라 시트를 배열로 읽어 D열(index 3)에서 이름 수집
       const aoa=XLSX.utils.sheet_to_json(sheet,{header:1,defval:''});
-      const names=[];
-      aoa.forEach(r=>{
-        let n = r[3]; // D열
-        if(n==null) return;
-        n=String(n).trim();
-        if(!n) return;
-        if(n==='거래처명'||n==='[]') return;
-        if(n.includes('합계')||n.includes('소계')) return;
-        names.push(n);
+      const aliases={
+        name:['거래처명','상호','업체명','거래처'], bizNo:['사업자번호','사업자등록번호','사업자 번호'],
+        representative:['대표자','대표자명'], tel:['전화번호','전화','TEL','연락처'],
+        mobile:['핸드폰번호','휴대폰번호','휴대폰','핸드폰','MOBILE'], email:['이메일','E-mail','EMAIL','메일']
+      };
+      const h=findImportHeader(aoa,aliases), header=h.row;
+      const cols={}; Object.keys(aliases).forEach(k=>cols[k]=aliasCol(header,aliases[k]));
+      // 구형 ESA 양식처럼 헤더가 인식되지 않으면 D열 거래처명만 허용
+      if(cols.name<0 && aoa.some(r=>String((r||[])[3]||'').trim()==='거래처명')) cols.name=3;
+      if(cols.name<0){ alert('거래처명(또는 상호) 열을 찾지 못했습니다.'); return; }
+      const rows=[]; const seen=new Set();
+      for(let i=h.idx+1;i<aoa.length;i++){
+        const r=aoa[i]||[]; const name=normalizeImportName(r[cols.name]);
+        if(!name||name==='[]'||name.includes('합계')||name.includes('소계')) continue;
+        const bizNo=cols.bizNo>=0?normalizeImportBizNo(r[cols.bizNo]):'';
+        const key=bizNo||('N:'+name); if(seen.has(key)) continue; seen.add(key);
+        const tel=cols.tel>=0?formatPhoneImport(r[cols.tel]):'';
+        const mobile=cols.mobile>=0?formatPhoneImport(r[cols.mobile]):'';
+        rows.push({name,bizNo,representative:cols.representative>=0?String(r[cols.representative]||'').trim():'',tel,mobile,email:cols.email>=0?String(r[cols.email]||'').trim():'',phone:mobile||tel});
+      }
+      if(!rows.length){ alert('등록할 거래처 데이터를 읽지 못했습니다.'); return; }
+      const byBiz=new Map(), byName=new Map();
+      state.customers.forEach(c=>{ const b=normalizeImportBizNo(c.bizNo); if(b) byBiz.set(b,c); byName.set(normalizeImportName(c.name),c); });
+      const changes={newRows:[],modified:[],unchanged:[],invalid:[],deleteCandidates:[]}; const matchedIds=new Set();
+      rows.forEach(x=>{
+        let old=x.bizNo?byBiz.get(x.bizNo):null; if(!old) old=byName.get(x.name);
+        if(!old){ if(!x.bizNo) changes.invalid.push({...x,reason:'사업자번호 없음'}); else changes.newRows.push(x); return; }
+        matchedIds.add(old.id);
+        const patch={};
+        ['name','bizNo','representative','tel','mobile','email'].forEach(k=>{ if(x[k] && String(old[k]||'').trim()!==String(x[k]).trim()) patch[k]=x[k]; });
+        const newPhone=x.mobile||x.tel; if(newPhone && String(old.phone||'').trim()!==newPhone) patch.phone=newPhone;
+        if(Object.keys(patch).length) changes.modified.push({id:old.id,old,x,patch}); else changes.unchanged.push({id:old.id,old,x});
       });
-      const seen=new Set(); const uniq=[];
-      names.forEach(n=>{ if(!seen.has(n)){ seen.add(n); uniq.push(n); } });
-      if(uniq.length===0){ alert('D열(거래처명)에서 읽을 데이터가 없습니다.'); return; }
-      state.pendingCustImport=uniq;
-      renderCustImportModal();
+      state.customers.filter(c=>c.name!=='택배보상금'&&!matchedIds.has(c.id)).forEach(c=>changes.deleteCandidates.push(c));
+      state.pendingCustImport={fileName:file.name,changes}; renderCustImportModal();
     }catch(err){ alert('엑셀 읽기 오류: '+err.message); }
-  };
-  reader.readAsArrayBuffer(file);
-}
-/* 거래처 연락처 매칭 업로드 (B열=거래처명, H열=전화번호, 010만) */
-function handleCustPhoneExcel(evt){ const f=evt.target.files[0]; if(f) processCustPhoneFile(f); evt.target.value=''; }
-function dropCustPhoneFile(e){
-  e.preventDefault();
-  const el=document.getElementById('custPhoneDrop'); if(el) el.classList.remove('drag-on');
-  const f=e.dataTransfer.files && e.dataTransfer.files[0];
-  if(!f) return;
-  if(!/\.(xlsx|xls)$/i.test(f.name)){ alert('엑셀 파일(.xlsx, .xls)만 올릴 수 있어요.'); return; }
-  processCustPhoneFile(f);
-}
-function processCustPhoneFile(file){
-  const reader=new FileReader();
-  reader.onload=function(e){
-    try{
-      const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'});
-      const sheet=wb.Sheets[wb.SheetNames[0]];
-      const aoa=XLSX.utils.sheet_to_json(sheet,{header:1,defval:''});
-      const map={};
-      aoa.forEach(r=>{
-        let name=r[1], phone=r[7]; // B열, H열
-        if(name==null||phone==null) return;
-        name=String(name).trim(); phone=String(phone).trim();
-        if(!name||name==='거래처명') return;
-        const digits=phone.replace(/[^0-9]/g,'');
-        if(!(digits.startsWith('010')&&digits.length===11)) return;
-        const formatted=digits.slice(0,3)+'-'+digits.slice(3,7)+'-'+digits.slice(7);
-        if(!map[name]) map[name]=formatted;
-      });
-      const matched=[];
-      state.customers.forEach(c=>{ if(map[c.name]) matched.push({id:c.id, name:c.name, phone:map[c.name], had:!!c.phone}); });
-      const totalInFile=Object.keys(map).length;
-      if(matched.length===0){ alert(`엑셀에서 휴대폰 ${totalInFile}건을 읽었지만, 앱에 등록된 거래처와 이름이 일치하는 곳이 없습니다. (이름 표기가 다르면 매칭되지 않아요)`); return; }
-      state.pendingPhoneImport={matched, totalInFile};
-      renderPhoneImportModal();
-    }catch(err){ alert('엑셀 읽기 오류: '+err.message); }
-  };
-  reader.readAsArrayBuffer(file);
-}
-function renderPhoneImportModal(){
-  const {matched, totalInFile}=state.pendingPhoneImport;
-  const preview=matched.slice(0,60).map(m=>`<tr><td>${m.name}</td><td class="num">${m.phone}</td><td>${m.had?'<span class="muted">덮어씀</span>':'신규'}</td></tr>`).join('');
-  document.getElementById('modalRoot').innerHTML=`
-  <div class="modal-bg"><div class="modal">
-    <h3>거래처 연락처 매칭 미리보기</h3>
-    <p>엑셀에서 휴대폰 <b>${totalInFile}건</b>을 읽었고, 그중 앱에 등록된 거래처와 이름이 일치하는 <b>${matched.length}곳</b>에 번호를 채웁니다. 나머지는 건너뜁니다.</p>
-    <div class="table-wrap" style="max-height:300px;overflow-y:auto;"><table>
-      <thead><tr><th>거래처명</th><th>휴대폰</th><th>상태</th></tr></thead>
-      <tbody>${preview}${matched.length>60?`<tr><td colspan="3" class="muted">…외 ${matched.length-60}곳</td></tr>`:''}</tbody></table></div>
-    <div class="modal-actions"><button class="btn ghost" onclick="cancelPhoneImport()">취소</button>
-    <button class="btn accent" onclick="confirmPhoneImport()">${matched.length}곳 번호 채우기</button></div>
-  </div></div>`;
-}
-function cancelPhoneImport(){ state.pendingPhoneImport=null; closeModal(); }
-function confirmPhoneImport(){
-  const {matched}=state.pendingPhoneImport;
-  matched.forEach(m=>{ const c=state.customers.find(x=>x.id===m.id); if(c) c.phone=m.phone; });
-  state.pendingPhoneImport=null; closeModal(); render(); toast(matched.length+'곳에 연락처를 채웠습니다');
+  }; reader.readAsArrayBuffer(file);
 }
 function renderCustImportModal(){
-  const names=state.pendingCustImport;
-  const existing=new Set(state.customers.map(c=>c.name));
-  const newOnes=names.filter(n=>!existing.has(n));
-  const dupCount=names.length-newOnes.length;
-  const preview=newOnes.slice(0,50).map(n=>`<tr><td>${n}</td></tr>`).join('');
-  document.getElementById('modalRoot').innerHTML=`
-  <div class="modal-bg"><div class="modal">
-    <h3>거래처 엑셀 미리보기</h3>
-    <p>D열에서 <b>${names.length}곳</b> 인식 · 새로 추가될 곳 <b>${newOnes.length}곳</b>${dupCount?` · 이미 있어 건너뜀 ${dupCount}곳`:''}. 새 거래처는 아래에서 고른 가격그룹 / 부가세 포함으로 등록되며, 표에서 각자 변경할 수 있습니다.</p>
-    <label class="f" style="margin-bottom:12px;">새 거래처 기본 가격그룹
-      <select id="custImportGroup" style="max-width:160px;">${PRICE_GROUP_KEYS.map(g=>`<option ${g==='5가'?'selected':''}>${g}</option>`).join('')}</select></label>
-    <div class="table-wrap" style="max-height:260px;overflow-y:auto;"><table>
-      <thead><tr><th>추가될 거래처명 (미리보기 ${Math.min(newOnes.length,50)}${newOnes.length>50?'/'+newOnes.length:''})</th></tr></thead>
-      <tbody>${preview||'<tr><td class="empty">새로 추가될 거래처가 없습니다.</td></tr>'}</tbody></table></div>
-    <div class="modal-actions"><button class="btn ghost" onclick="cancelCustImport()">취소</button>
-    <button class="btn accent" onclick="confirmCustImport()" ${newOnes.length?'':'disabled'}>${newOnes.length}곳 추가</button></div>
+  const p=state.pendingCustImport; const c=p.changes;
+  const rows=[
+    ...c.newRows.slice(0,30).map(x=>`<tr><td><b>신규</b></td><td>${x.name}</td><td>${x.bizNo||'-'}</td><td>새로 등록</td></tr>`),
+    ...c.modified.slice(0,30).map(m=>`<tr><td><b>수정</b></td><td>${m.x.name}</td><td>${m.x.bizNo||'-'}</td><td>${Object.keys(m.patch).map(k=>({representative:'대표자',tel:'전화',mobile:'휴대폰',email:'이메일',phone:'연락처',name:'거래처명',bizNo:'사업자번호'}[k]||k)).join(', ')}</td></tr>`),
+    ...c.invalid.slice(0,10).map(x=>`<tr><td>확인</td><td>${x.name}</td><td>-</td><td>${x.reason} · 자동 추가 제외</td></tr>`)
+  ].join('');
+  document.getElementById('modalRoot').innerHTML=`<div class="modal-bg"><div class="modal" style="max-width:820px;">
+    <h3>거래처 엑셀 적용 전 확인</h3>
+    <p><b>${p.fileName}</b>에서 신규 <b>${c.newRows.length}</b>곳 · 수정 <b>${c.modified.length}</b>곳 · 변경 없음 <b>${c.unchanged.length}</b>곳 · 확인 필요 <b>${c.invalid.length}</b>곳을 찾았습니다.</p>
+    <div class="pick-summary" style="margin:10px 0;">엑셀에 없는 기존 거래처 <b>${c.deleteCandidates.length}</b>곳은 삭제 후보로만 확인하며 <b>자동 삭제하지 않습니다.</b></div>
+    <div class="table-wrap" style="max-height:330px;overflow:auto;"><table><thead><tr><th>구분</th><th>거래처명</th><th>사업자번호</th><th>반영 내용</th></tr></thead><tbody>${rows||'<tr><td colspan="4" class="empty">적용할 변경사항이 없습니다.</td></tr>'}</tbody></table></div>
+    <div class="modal-actions"><button class="btn ghost" onclick="cancelCustImport()">취소</button><button class="btn accent" onclick="confirmCustImport()" ${(c.newRows.length+c.modified.length)?'':'disabled'}>신규·수정 적용하기</button></div>
   </div></div>`;
 }
 function cancelCustImport(){ state.pendingCustImport=null; closeModal(); }
 function confirmCustImport(){
-  const names=state.pendingCustImport;
-  const g=document.getElementById('custImportGroup').value;
-  const existing=new Set(state.customers.map(c=>c.name));
-  let added=0;
-  names.forEach(n=>{ if(!existing.has(n)){ state.customers.push({id:nextId(), name:n, priceGroups:makePriceGroups(g), shipVat:'included'}); existing.add(n); added++; } });
-  state.pendingCustImport=null;
-  saveData();
-  closeModal();
-  render();
-  toast(added+'곳을 추가했습니다');
+  const c=state.pendingCustImport.changes; let added=0,updated=0;
+  c.newRows.forEach(x=>{ state.customers.push({id:nextId(),name:x.name,bizNo:x.bizNo,representative:x.representative,tel:x.tel,mobile:x.mobile,email:x.email,phone:x.phone,priceGroups:makePriceGroups('5가'),shipVat:'included'}); added++; });
+  c.modified.forEach(m=>{ const old=state.customers.find(x=>x.id===m.id); if(old){ Object.assign(old,m.patch); updated++; } });
+  state.pendingCustImport=null; saveData(); closeModal(); render(); toast(`거래처 신규 ${added}곳 · 수정 ${updated}곳을 적용했습니다`);
 }
+
+/* 공급자 엑셀 업로드 + 미리보기 */
+function handleSupplierExcel(evt){ const f=evt.target.files[0]; if(f) processSupplierFile(f); evt.target.value=''; }
+function dropSupplierFile(e){ e.preventDefault(); const el=document.getElementById('supplierDrop'); if(el) el.classList.remove('drag-on'); const f=e.dataTransfer.files&&e.dataTransfer.files[0]; if(!f)return; if(!/\.(xlsx|xls)$/i.test(f.name)){alert('엑셀 파일만 올릴 수 있어요.');return;} processSupplierFile(f); }
+function processSupplierFile(file){
+  const reader=new FileReader(); reader.onload=function(e){ try{
+    const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'}), sheet=wb.Sheets[wb.SheetNames[0]], aoa=XLSX.utils.sheet_to_json(sheet,{header:1,defval:''});
+    const aliases={name:['공급자','상호','업체명'],bizNo:['사업자번호','사업자등록번호'],bank:['은행','은행명'],account:['계좌번호','통장번호'],holder:['예금주','예금주명']};
+    const h=findImportHeader(aoa,aliases), cols={}; Object.keys(aliases).forEach(k=>cols[k]=aliasCol(h.row,aliases[k])); if(cols.name<0){alert('공급자 또는 상호 열을 찾지 못했습니다.');return;}
+    const input=[]; for(let i=h.idx+1;i<aoa.length;i++){ const r=aoa[i]||[],name=normalizeImportName(r[cols.name]); if(!name)continue; input.push({name,bizNo:cols.bizNo>=0?normalizeImportBizNo(r[cols.bizNo]):'',bank:cols.bank>=0?String(r[cols.bank]||'').trim():'',account:cols.account>=0?String(r[cols.account]||'').trim():'',holder:cols.holder>=0?String(r[cols.holder]||'').trim():''}); }
+    const changes={newRows:[],modified:[],unchanged:[]}; input.forEach(x=>{ const bare=x.name.replace(/\(주\)|주식회사|㈜/g,'').trim(); let old=state.suppliers.find(s=>(x.bizNo&&normalizeImportBizNo(s.bizNo)===x.bizNo)||s.name===x.name||s.name===bare||s.name.includes(bare)||x.name.includes(s.name)); if(!old){changes.newRows.push(x);return;} const patch={}; ['name','bizNo','bank','account','holder'].forEach(k=>{if(x[k]&&String(old[k]||'').trim()!==x[k])patch[k]=x[k];}); if(Object.keys(patch).length)changes.modified.push({id:old.id,x,patch});else changes.unchanged.push({id:old.id,x}); });
+    state.pendingSupplierImport={fileName:file.name,changes}; renderSupplierImportModal();
+  }catch(err){alert('엑셀 읽기 오류: '+err.message);} }; reader.readAsArrayBuffer(file);
+}
+function renderSupplierImportModal(){ const p=state.pendingSupplierImport,c=p.changes; const rows=[...c.newRows.map(x=>`<tr><td>신규</td><td>${x.name}</td><td>${x.bizNo||'-'}</td><td>새 공급자 추가</td></tr>`),...c.modified.map(m=>`<tr><td>수정</td><td>${m.x.name}</td><td>${m.x.bizNo||'-'}</td><td>${Object.keys(m.patch).join(', ')}</td></tr>`)].join(''); document.getElementById('modalRoot').innerHTML=`<div class="modal-bg"><div class="modal"><h3>공급자 엑셀 적용 전 확인</h3><p>신규 <b>${c.newRows.length}</b>곳 · 수정 <b>${c.modified.length}</b>곳 · 변경 없음 <b>${c.unchanged.length}</b>곳</p><div class="table-wrap"><table><thead><tr><th>구분</th><th>공급자</th><th>사업자번호</th><th>반영 내용</th></tr></thead><tbody>${rows||'<tr><td colspan="4" class="empty">변경사항이 없습니다.</td></tr>'}</tbody></table></div><div class="modal-actions"><button class="btn ghost" onclick="cancelSupplierImport()">취소</button><button class="btn accent" onclick="confirmSupplierImport()" ${(c.newRows.length+c.modified.length)?'':'disabled'}>적용하기</button></div></div></div>`; }
+function cancelSupplierImport(){state.pendingSupplierImport=null;closeModal();}
+function confirmSupplierImport(){const c=state.pendingSupplierImport.changes;let a=0,u=0;c.newRows.forEach(x=>{state.suppliers.push({id:nextId(),...x});a++;});c.modified.forEach(m=>{const old=state.suppliers.find(x=>x.id===m.id);if(old){Object.assign(old,m.patch);u++;}});state.pendingSupplierImport=null;saveData();closeModal();render();toast(`공급자 신규 ${a}곳 · 수정 ${u}곳을 적용했습니다`);}
 
 /* =================== 엑셀 업로드 =================== */
 function handleExcel(evt, type){
