@@ -9,6 +9,7 @@ function cloudPayload(){
     suppliers: state.suppliers,
     order_history: state.orderHistory,
     draft_order: state.draftOrder,
+    favorite_customer_ids: state.favoriteCustomerIds || [],
     sms_settings: state.smsSettings || { apiKey:'', apiSecret:'', fromNum:'' }
   };
 }
@@ -21,6 +22,7 @@ function applyCloudPayload(data){
   if(Array.isArray(data.suppliers)) state.suppliers = data.suppliers;
   if(Array.isArray(data.order_history)) state.orderHistory = data.order_history;
   state.draftOrder = (data.draft_order && typeof data.draft_order === 'object') ? data.draft_order : null;
+  state.favoriteCustomerIds = Array.isArray(data.favorite_customer_ids) ? data.favorite_customer_ids.map(Number) : [];
   if(data.sms_settings && typeof data.sms_settings === 'object') state.smsSettings = data.sms_settings;
   if(Number.isFinite(Number(data.id_seq))) state._idSeq = Math.max(Number(data.id_seq), 2000);
   state.customers.forEach(migrateCustomer);

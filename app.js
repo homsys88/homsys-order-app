@@ -25,7 +25,7 @@ let realtimeChannel = null;
 const BRANDS = ['귀뚜라미','경동','대성셀틱','중형'];
 const PRICE_GROUPS = { '0가':0, '1가':1000, '2가':2000, '3가':3000, '4가':4000, '5가':5000, '10가':10000 };
 const PRICE_GROUP_KEYS = Object.keys(PRICE_GROUPS);
-const DATA_VERSION = 9.2; // v9.2: 날짜·임시저장 불러오기·이력 재열기 수정
+const DATA_VERSION = 9.3; // v9.3: 이어서 작업 UX + 즐겨찾기 거래처
 function localTodayISO(){
   const now = new Date();
   const y = now.getFullYear();
@@ -55,6 +55,7 @@ let state = {
   costBrandFilter: '전체',
   shipBrandFilter: '전체',
   orderCustSearch: '',
+  favoriteCustomerIds: [],
   custSearch: '',
   _idSeq: 2000,
 };
@@ -67,6 +68,7 @@ const DEFAULT_PERSISTED_STATE = JSON.parse(JSON.stringify({
   suppliers: state.suppliers,
   orderHistory: state.orderHistory,
   draftOrder: state.draftOrder,
+  favoriteCustomerIds: state.favoriteCustomerIds,
   idSeq: state._idSeq
 }));
 
@@ -439,7 +441,7 @@ function renderOrderTab(){
     </div>
     <div class="row" style="margin-top:16px;gap:8px;align-items:center;">
       <button class="btn ghost" onclick="saveDraftOrder()" ${state.orderLines.length===0?'disabled':''}>📝 임시저장</button>
-      ${state.draftOrder ? `<button class="btn ghost" onclick="loadDraftOrder()">📂 임시저장 불러오기</button><button class="btn danger" onclick="deleteDraftOrder()">삭제</button>` : ''}
+      ${state.draftOrder ? `<button class="btn ghost" onclick="loadDraftOrder()">📂 이어서 작업</button><button class="btn danger" onclick="deleteDraftOrder()">삭제</button>` : ''}
       <button class="btn accent big" style="flex:1;" onclick="setTab('invoice')" ${state.orderLines.length===0?'disabled':''}>거래명세서 만들기 →</button>
     </div>
     ${state.draftOrder ? `<p class="desc" style="margin:8px 0 0;">임시저장: ${state.draftOrder.customerName||'거래처 미지정'} · ${state.draftOrder.lines.length}개 품목 · ${new Date(state.draftOrder.savedAt).toLocaleString('ko-KR')}</p>` : ''}
@@ -544,12 +546,41 @@ function onCustomerChange(id){
   state.orderMeta.customerId = id ? parseInt(id,10) : null;
   render();
 }
+function isFavoriteCustomer(id){
+  return Array.isArray(state.favoriteCustomerIds) && state.favoriteCustomerIds.includes(Number(id));
+}
+function toggleFavoriteCustomer(id, event){
+  if(event){ event.preventDefault(); event.stopPropagation(); }
+  const n=Number(id);
+  if(!Array.isArray(state.favoriteCustomerIds)) state.favoriteCustomerIds=[];
+  const i=state.favoriteCustomerIds.indexOf(n);
+  if(i>=0) state.favoriteCustomerIds.splice(i,1);
+  else state.favoriteCustomerIds.unshift(n);
+  saveData();
+  render();
+  setTimeout(()=>{ const input=document.getElementById('custSearchOrder'); if(input) input.focus(); },30);
+}
+function customerResultRow(c){
+  const fav=isFavoriteCustomer(c.id);
+  return `<div class="cust-result-item cust-result-flex" onclick="pickOrderCustomer(${c.id})">
+    <span class="cust-result-name">${fav?'★ ':''}${c.name}</span>
+    <button type="button" class="favorite-star ${fav?'on':''}" title="즐겨찾기" onclick="toggleFavoriteCustomer(${c.id}, event)">${fav?'★':'☆'}</button>
+  </div>`;
+}
 function buildCustResults(){
   const q=(state.orderCustSearch||'').trim();
-  if(!q) return '';
-  const matches=state.customers.filter(c=>c.name.includes(q)).slice(0,30);
+  const favorites=(state.favoriteCustomerIds||[])
+    .map(id=>state.customers.find(c=>c.id===id)).filter(Boolean);
+  if(!q){
+    if(favorites.length===0) return '';
+    return `<div class="cust-results-title">★ 즐겨찾기 거래처</div>${favorites.slice(0,20).map(customerResultRow).join('')}`;
+  }
+  const matches=state.customers
+    .filter(c=>c.name.includes(q))
+    .sort((a,b)=>Number(isFavoriteCustomer(b.id))-Number(isFavoriteCustomer(a.id)))
+    .slice(0,30);
   if(matches.length===0) return `<div class="cust-result-item muted">일치하는 거래처가 없습니다</div>`;
-  return matches.map(c=>`<div class="cust-result-item" onclick="pickOrderCustomer(${c.id})">${c.name}</div>`).join('');
+  return matches.map(customerResultRow).join('');
 }
 function onOrderCustSearch(v){
   state.orderCustSearch=v;
@@ -617,7 +648,9 @@ async function loadDraftOrder(){
       alert('Supabase에 저장된 임시발주가 없습니다.');
       return;
     }
-    if(state.orderLines.length>0 && !confirm('현재 작성 중인 내용을 임시저장 내용으로 바꿀까요?')) return;
+    const hasCurrentWork = !!state.orderMeta.customerId || state.orderLines.length>0;
+    const sameAsDraft = hasCurrentWork && state.draftOrder && JSON.stringify(state.orderLines)===JSON.stringify(state.draftOrder.lines||[]) && Number(state.orderMeta.customerId||0)===Number((state.draftOrder.orderMeta||{}).customerId||0);
+    if(hasCurrentWork && !sameAsDraft && !confirm('현재 작성 중인 내용이 사라집니다. 임시저장한 작업을 이어서 할까요?')) return;
     state.draftOrder = latest;
     state.orderMeta=JSON.parse(JSON.stringify(latest.orderMeta||{}));
     if(!state.orderMeta.date) state.orderMeta.date=localTodayISO();
@@ -635,7 +668,7 @@ async function loadDraftOrder(){
     state.editingHistoryId=null;
     state.tab='order';
     render();
-    toast(`임시저장 ${state.orderLines.length}개 품목을 화면으로 불러왔습니다`);
+    toast(`임시저장한 작업을 이어서 불러왔습니다 · ${state.orderLines.length}개 품목`);
   }catch(e){
     console.error(e);
     alert('임시저장을 불러오지 못했습니다: '+e.message);

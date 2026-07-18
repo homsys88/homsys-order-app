@@ -195,3 +195,10 @@
 .date-field-wrap{display:flex;gap:8px;align-items:center;}
 .date-field-wrap input[type="date"]{flex:1;min-width:0;height:38px;border:1px solid var(--line);border-radius:8px;padding:0 10px;background:#fff;color:var(--ink);font:inherit;cursor:pointer;}
 .date-today-btn{height:38px;padding:0 14px;border:1px solid var(--line);border-radius:8px;background:#fff;font-weight:700;cursor:pointer;white-space:nowrap;}
+
+/* v9.3 즐겨찾기 거래처 */
+.cust-results-title{padding:9px 12px 6px;font-size:12px;font-weight:800;color:var(--ink-soft);background:#f7f8fa;border-bottom:1px solid var(--border-color);}
+.cust-result-flex{display:flex;align-items:center;justify-content:space-between;gap:8px;}
+.cust-result-name{flex:1;min-width:0;}
+.favorite-star{border:0;background:transparent;font-size:20px;line-height:1;cursor:pointer;padding:3px 6px;color:#9aa3af;}
+.favorite-star.on{color:#e2a500;}
