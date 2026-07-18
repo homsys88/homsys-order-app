@@ -849,7 +849,12 @@ function renderHistoryTab(){
     <div class="history-filter-grid">
       <label class="f">시작일<input type="date" value="${f.from||''}" onchange="setHistoryFilter('from',this.value)"></label>
       <label class="f">종료일<input type="date" value="${f.to||''}" onchange="setHistoryFilter('to',this.value)"></label>
-      <label class="f">거래처명<input type="text" placeholder="거래처명 일부" value="${String(f.customer||'').replace(/"/g,'&quot;')}" oninput="setHistoryFilter('customer',this.value)"></label>
+      <label class="f history-customer-filter">거래처명
+        <div class="history-customer-search-wrap">
+          <input id="historyCustomerInput" type="text" placeholder="거래처명 일부" value="${String(f.customer||'').replace(/"/g,'&quot;')}" oninput="onHistoryCustomerInput(this.value)" onfocus="showHistoryCustomerSuggestions()" autocomplete="off">
+          <div id="historyCustomerSuggestions" class="history-customer-suggestions"></div>
+        </div>
+      </label>
       <label class="f">발주번호<input type="text" placeholder="예: 20260719" value="${String(f.orderNo||'').replace(/"/g,'&quot;')}" oninput="setHistoryFilter('orderNo',this.value)"></label>
       <label class="f">브랜드<select onchange="setHistoryFilter('brand',this.value)">${brandOpts}</select></label>
       <div class="history-filter-actions"><button class="btn ghost" onclick="resetHistoryFilters()">검색 초기화</button></div>
@@ -861,6 +866,49 @@ function renderHistoryTab(){
     </table></div>
   </div>`;
 }
+
+function historyCustomerCandidates(query=''){
+  const q=String(query||'').trim().toLowerCase();
+  const used=new Set();
+  const names=[];
+  // 실제 발주 이력이 있는 거래처를 최근 사용 순으로 먼저 표시
+  for(const h of state.orderHistory||[]){
+    const name=String(h.customerName||'').trim();
+    if(!name || used.has(name)) continue;
+    used.add(name); names.push(name);
+  }
+  // 등록 거래처도 뒤에 보충
+  for(const c of state.customers||[]){
+    const name=String(c.name||'').trim();
+    if(!name || used.has(name)) continue;
+    used.add(name); names.push(name);
+  }
+  return names.filter(name=>!q || name.toLowerCase().includes(q)).slice(0,12);
+}
+function renderHistoryCustomerSuggestions(query){
+  const box=document.getElementById('historyCustomerSuggestions');
+  if(!box) return;
+  const list=historyCustomerCandidates(query);
+  if(!String(query||'').trim() || !list.length){ box.innerHTML=''; box.classList.remove('show'); return; }
+  box.innerHTML=list.map(name=>`<button type="button" onclick="selectHistoryCustomer(${JSON.stringify(name).replace(/</g,'\u003c')})">${escapeHtml(name)}</button>`).join('');
+  box.classList.add('show');
+}
+function onHistoryCustomerInput(value){
+  setHistoryFilter('customer',value);
+  renderHistoryCustomerSuggestions(value);
+}
+function showHistoryCustomerSuggestions(){
+  const input=document.getElementById('historyCustomerInput');
+  if(input) renderHistoryCustomerSuggestions(input.value);
+}
+function selectHistoryCustomer(name){
+  const input=document.getElementById('historyCustomerInput');
+  if(input) input.value=name;
+  setHistoryFilter('customer',name);
+  const box=document.getElementById('historyCustomerSuggestions');
+  if(box){ box.innerHTML=''; box.classList.remove('show'); }
+}
+
 function setHistoryFilter(key,value){
   state.historyFilters = state.historyFilters || {from:'',to:'',customer:'',orderNo:'',brand:'전체'};
   state.historyFilters[key]=value;

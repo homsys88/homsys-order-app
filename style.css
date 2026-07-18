@@ -241,3 +241,11 @@
 .password-change-box{max-width:440px;display:grid;gap:12px;margin-top:18px;padding:18px;border:1px solid var(--border);border-radius:14px;background:#fafbfd;}
 .desc.small{font-size:12px;margin:0;}
 @media(max-width:900px){.history-filter-grid{grid-template-columns:repeat(2,minmax(0,1fr));}.history-filter-actions{grid-column:1/-1;}.history-actions{white-space:normal;}.history-actions .btn{margin:2px 0;}}
+
+/* v11.1 발주이력 거래처 자동완성 */
+.history-customer-filter{position:relative;}
+.history-customer-search-wrap{position:relative;}
+.history-customer-suggestions{display:none;position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:80;background:#fff;border:1px solid var(--border,#d8dee8);border-radius:10px;box-shadow:0 10px 24px rgba(15,23,42,.14);max-height:260px;overflow:auto;padding:5px;}
+.history-customer-suggestions.show{display:block;}
+.history-customer-suggestions button{display:block;width:100%;border:0;background:#fff;text-align:left;padding:10px 12px;border-radius:7px;cursor:pointer;font-size:14px;color:var(--ink,#172033);}
+.history-customer-suggestions button:hover,.history-customer-suggestions button:focus{background:#f3f6fa;outline:none;}
