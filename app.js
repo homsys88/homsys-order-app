@@ -871,56 +871,78 @@ function historyCustomerCandidates(query=''){
   const q=String(query||'').trim().toLowerCase();
   const used=new Set();
   const names=[];
-  // 실제 발주 이력이 있는 거래처를 최근 사용 순으로 먼저 표시
-  for(const h of state.orderHistory||[]){
-    const name=String(h.customerName||'').trim();
-    if(!name || used.has(name)) continue;
-    used.add(name); names.push(name);
-  }
-  // 등록 거래처도 뒤에 보충
+  // 등록 거래처 전체를 기준으로 후보 생성
   for(const c of state.customers||[]){
     const name=String(c.name||'').trim();
     if(!name || used.has(name)) continue;
     used.add(name); names.push(name);
   }
-  return names.filter(name=>!q || name.toLowerCase().includes(q)).slice(0,12);
+  // 발주 이력에만 남아 있는 거래처도 보충
+  for(const h of state.orderHistory||[]){
+    const name=String(h.customerName||'').trim();
+    if(!name || used.has(name)) continue;
+    used.add(name); names.push(name);
+  }
+  if(!q) return [];
+  return names
+    .filter(name=>name.toLowerCase().includes(q))
+    .sort((a,b)=>{
+      const al=a.toLowerCase(), bl=b.toLowerCase();
+      const ap=al.startsWith(q)?0:1, bp=bl.startsWith(q)?0:1;
+      if(ap!==bp) return ap-bp;
+      return a.localeCompare(b,'ko');
+    })
+    .slice(0,12);
 }
 let historySuggestionIndex = -1;
+function getHistorySuggestionBox(){
+  let box=document.getElementById('historyCustomerSuggestionsPortal');
+  if(!box){
+    box=document.createElement('div');
+    box.id='historyCustomerSuggestionsPortal';
+    box.className='history-customer-suggestions';
+    document.body.appendChild(box);
+  }
+  return box;
+}
 function positionHistoryCustomerSuggestions(){
   const input=document.getElementById('historyCustomerInput');
-  const box=document.getElementById('historyCustomerSuggestions');
+  const box=getHistorySuggestionBox();
   if(!input || !box) return;
   const r=input.getBoundingClientRect();
   box.style.left=`${Math.round(r.left)}px`;
   box.style.top=`${Math.round(r.bottom+5)}px`;
-  box.style.width=`${Math.round(r.width)}px`;
+  box.style.width=`${Math.max(220,Math.round(r.width))}px`;
 }
 function renderHistoryCustomerSuggestions(query){
-  const box=document.getElementById('historyCustomerSuggestions');
-  if(!box) return;
-  const q=String(query||'').trim();
+  const input=document.getElementById('historyCustomerInput');
+  if(!input) return;
+  const box=getHistorySuggestionBox();
+  const q=String(query??input.value??'').trim();
   const list=historyCustomerCandidates(q);
-  if(!q || !list.length){ closeHistoryCustomerSuggestions(); return; }
+  if(q.length<1 || !list.length){ closeHistoryCustomerSuggestions(); return; }
   historySuggestionIndex=-1;
-  box.innerHTML=list.map((name,i)=>`<button type="button" data-index="${i}" onmousedown="event.preventDefault();selectHistoryCustomer(${JSON.stringify(name).replace(/</g,'\u003c')})">${escapeHtml(name)}</button>`).join('');
+  box.innerHTML=list.map((name,i)=>`<button type="button" data-index="${i}" onmousedown="event.preventDefault();selectHistoryCustomer(${JSON.stringify(name).replace(/</g,'\\u003c')})">${escapeHtml(name)}</button>`).join('');
   positionHistoryCustomerSuggestions();
   box.classList.add('show');
 }
 function closeHistoryCustomerSuggestions(){
-  const box=document.getElementById('historyCustomerSuggestions');
+  const box=document.getElementById('historyCustomerSuggestionsPortal');
   if(box){ box.innerHTML=''; box.classList.remove('show'); }
   historySuggestionIndex=-1;
 }
 function onHistoryCustomerInput(value){
-  setHistoryFilter('customer',value);
+  // 한 글자 입력 즉시 후보를 먼저 표시
   renderHistoryCustomerSuggestions(value);
+  setHistoryFilter('customer',value);
+  requestAnimationFrame(()=>renderHistoryCustomerSuggestions(value));
 }
 function showHistoryCustomerSuggestions(){
   const input=document.getElementById('historyCustomerInput');
-  if(input) renderHistoryCustomerSuggestions(input.value);
+  if(input && input.value.trim().length>=1) renderHistoryCustomerSuggestions(input.value);
 }
 function onHistoryCustomerKeydown(event){
-  const box=document.getElementById('historyCustomerSuggestions');
+  const box=document.getElementById('historyCustomerSuggestionsPortal');
   if(!box || !box.classList.contains('show')){
     if(event.key==='ArrowDown') showHistoryCustomerSuggestions();
     return;
@@ -933,9 +955,10 @@ function onHistoryCustomerKeydown(event){
   }else if(event.key==='ArrowUp'){
     event.preventDefault();
     historySuggestionIndex=(historySuggestionIndex-1+buttons.length)%buttons.length;
-  }else if(event.key==='Enter' && historySuggestionIndex>=0){
+  }else if(event.key==='Enter'){
     event.preventDefault();
-    buttons[historySuggestionIndex].dispatchEvent(new MouseEvent('mousedown',{bubbles:true}));
+    const idx=historySuggestionIndex>=0?historySuggestionIndex:0;
+    buttons[idx].dispatchEvent(new MouseEvent('mousedown',{bubbles:true}));
     return;
   }else if(event.key==='Escape'){
     closeHistoryCustomerSuggestions();
@@ -950,6 +973,14 @@ function selectHistoryCustomer(name){
   setHistoryFilter('customer',name);
   closeHistoryCustomerSuggestions();
 }
+window.addEventListener('scroll',()=>{
+  const box=document.getElementById('historyCustomerSuggestionsPortal');
+  if(box?.classList.contains('show')) positionHistoryCustomerSuggestions();
+},true);
+window.addEventListener('resize',()=>{
+  const box=document.getElementById('historyCustomerSuggestionsPortal');
+  if(box?.classList.contains('show')) positionHistoryCustomerSuggestions();
+});
 
 function setHistoryFilter(key,value){
   state.historyFilters = state.historyFilters || {from:'',to:'',customer:'',orderNo:'',brand:'전체'};
