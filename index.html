@@ -207,7 +207,7 @@
 <header class="app-header">
   <div class="brand-row">
     <h1>전기온수기 발주계산</h1>
-    <span class="tag">부가세 별도 기준 · v7 엑셀미리보기</span>
+    <span class="tag">부가세 별도 기준 · v8 독립저장</span>
   </div>
   <nav class="tabs" id="tabNav"></nav>
 </header>
@@ -256,6 +256,7 @@ let state = {
   orderMeta: { customerId: null, supplierId: 1, date: new Date().toISOString().slice(0,10), docNo: 'ORD-'+Date.now().toString().slice(-6) },
   orderLines: [],
   orderHistory: [],
+  draftOrder: null,
   selectedBrands: [],
   selectedModel: null,
   lineQty: 1,
@@ -273,6 +274,7 @@ const DEFAULT_PERSISTED_STATE = JSON.parse(JSON.stringify({
   customers: state.customers,
   suppliers: state.suppliers,
   orderHistory: state.orderHistory,
+  draftOrder: state.draftOrder,
   idSeq: state._idSeq
 }));
 
@@ -642,9 +644,12 @@ function renderOrderTab(){
         <tbody>${lineRows || `<tr><td colspan="5" class="empty">아직 담은 품목이 없습니다. 위에서 모델을 눌러 담아보세요.</td></tr>`}</tbody>
       </table>
     </div>
-    <div style="margin-top:16px;">
-      <button class="btn accent big" onclick="setTab('invoice')" ${state.orderLines.length===0?'disabled':''}>거래명세서 만들기 →</button>
+    <div class="row" style="margin-top:16px;gap:8px;align-items:center;">
+      <button class="btn ghost" onclick="saveDraftOrder()" ${state.orderLines.length===0?'disabled':''}>📝 임시저장</button>
+      ${state.draftOrder ? `<button class="btn ghost" onclick="loadDraftOrder()">📂 임시저장 불러오기</button><button class="btn danger" onclick="deleteDraftOrder()">삭제</button>` : ''}
+      <button class="btn accent big" style="flex:1;" onclick="setTab('invoice')" ${state.orderLines.length===0?'disabled':''}>거래명세서 만들기 →</button>
     </div>
+    ${state.draftOrder ? `<p class="desc" style="margin:8px 0 0;">임시저장: ${state.draftOrder.customerName||'거래처 미지정'} · ${state.draftOrder.lines.length}개 품목 · ${new Date(state.draftOrder.savedAt).toLocaleString('ko-KR')}</p>` : ''}
   </div>`;
 }
 function changeCustGroupQuick(brand, g){
@@ -790,6 +795,44 @@ function changeLineShip(id, v){
   render();
 }
 
+/* =================== 임시저장 =================== */
+function saveDraftOrder(){
+  if(state.orderLines.length===0){ alert('임시저장할 품목이 없습니다.'); return; }
+  const cust=currentCustomer();
+  const sup=currentSupplier();
+  state.draftOrder={
+    savedAt:new Date().toISOString(),
+    orderMeta:JSON.parse(JSON.stringify(state.orderMeta)),
+    selectedBrands:JSON.parse(JSON.stringify(state.selectedBrands)),
+    lines:JSON.parse(JSON.stringify(state.orderLines)),
+    customerName:cust?cust.name:'미지정',
+    supplierName:sup?sup.name:''
+  };
+  saveData(true);
+  render();
+  toast('작성 중인 발주를 임시저장했습니다');
+}
+function loadDraftOrder(){
+  const d=state.draftOrder;
+  if(!d){ alert('불러올 임시저장이 없습니다.'); return; }
+  if(state.orderLines.length>0 && !confirm('현재 작성 중인 내용을 임시저장 내용으로 바꿀까요?')) return;
+  state.orderMeta=JSON.parse(JSON.stringify(d.orderMeta));
+  state.orderLines=JSON.parse(JSON.stringify(d.lines||[]));
+  state.selectedBrands=JSON.parse(JSON.stringify(d.selectedBrands||[]));
+  state.selectedModel=null;
+  state.tab='order';
+  render();
+  toast('임시저장을 불러왔습니다');
+}
+function deleteDraftOrder(){
+  if(!state.draftOrder) return;
+  if(!confirm('임시저장 내용을 삭제할까요?')) return;
+  state.draftOrder=null;
+  saveData(true);
+  render();
+  toast('임시저장을 삭제했습니다');
+}
+
 /* =================== 거래명세서 =================== */
 function calcTotals(){
   const productTotal = state.orderLines.reduce((s,l)=>s+l.amount,0);
@@ -826,7 +869,7 @@ function renderInvoiceTab(){
         <button class="btn accent sm" id="pdfBtn" onclick="makePDF()">📄 PDF 다운로드</button>
         <button class="btn sm" onclick="openSmsModal()">✉ 문자 발송</button>
         <button class="btn sm" onclick="openKakaoModal()">💬 카톡 발송</button>
-        <button class="btn sm" onclick="saveToHistory()" style="background:var(--teal);">💾 이력 저장</button>
+        <button class="btn sm" onclick="saveToHistory()" style="background:var(--teal);">💾 발주 저장</button>
       </div>
     </div>
   </div>
@@ -869,7 +912,10 @@ function saveToHistory(silent){
   const t=calcTotals();
   // 자동저장 중복 방지: 같은 거래처+날짜+품목수+합계가 최근 이력과 같으면 저장 안 함
   const sig=(cust?cust.name:'')+'|'+state.orderMeta.date+'|'+state.orderLines.length+'|'+t.grand;
-  if(silent && state.orderHistory[0] && state.orderHistory[0]._sig===sig) return;
+  if(state.orderHistory[0] && state.orderHistory[0]._sig===sig){
+    if(silent) return;
+    if(!confirm('같은 내용의 발주가 최근 이력에 있습니다. 그래도 다시 저장할까요?')) return;
+  }
   const entry={
     id:nextId(),
     _sig:sig,
@@ -884,7 +930,7 @@ function saveToHistory(silent){
   };
   state.orderHistory.unshift(entry);
   saveData();
-  if(!silent){ toast('발주 이력을 저장했습니다'); render(); }
+  if(!silent){ toast('발주를 저장했습니다'); render(); }
 }
 function renderHistoryTab(){
   const q=(state.historySearch||'').trim();
@@ -905,7 +951,7 @@ function renderHistoryTab(){
   }).join('');
   return `<div class="card">
     <h2>발주 이력 <span class="badge-vat">${state.orderHistory.length}건</span></h2>
-    <p class="desc">거래명세서에서 <b>💾 이력 저장</b>을 누른 발주가 여기 쌓입니다. 나중에 조회하거나, 같은 거래처 재발주 시 불러와서 수량만 고쳐 쓸 수 있어요.</p>
+    <p class="desc">거래명세서에서 <b>💾 발주 저장</b>을 누른 발주가 여기 쌓입니다. 문자발송 여부와 관계없이 저장됩니다. 나중에 조회하거나, 같은 거래처 재발주 시 불러와서 수량만 고쳐 쓸 수 있어요.</p>
     <label class="f" style="margin-bottom:12px;">🔍 검색 (거래처명 또는 날짜)
       <input type="text" id="historySearch" placeholder="예: 하나보일러 또는 2026-07" value="${q.replace(/"/g,'&quot;')}" oninput="onHistorySearch(this.value)" style="max-width:340px;"></label>
     <div class="table-wrap"><table>
@@ -1062,7 +1108,6 @@ async function doSendMms(){
     await sendMms(to, subject, text, fileId);
     rd.innerHTML='<span style="color:var(--teal)">✓ 이미지 문자(MMS)를 발송했습니다.</span>';
     btn.textContent='발송됨';
-    saveToHistory(true);
     toast('이미지 문자를 발송했습니다');
     setTimeout(closeModal, 1400);
   }catch(err){
@@ -1081,7 +1126,6 @@ async function doSendSms(){
   if(r.ok){
     rd.innerHTML='<span style="color:var(--teal)">✓ 발송 완료되었습니다.</span>';
     btn.textContent='발송됨';
-    saveToHistory(true);
     toast('문자를 발송했습니다');
     setTimeout(closeModal, 1200);
   } else {
@@ -1841,6 +1885,7 @@ function cloudPayload(){
     customers: state.customers,
     suppliers: state.suppliers,
     order_history: state.orderHistory,
+    draft_order: state.draftOrder,
     sms_settings: state.smsSettings || { apiKey:'', apiSecret:'', fromNum:'' }
   };
 }
@@ -1852,6 +1897,7 @@ function applyCloudPayload(data){
   if(Array.isArray(data.customers)) state.customers = data.customers;
   if(Array.isArray(data.suppliers)) state.suppliers = data.suppliers;
   if(Array.isArray(data.order_history)) state.orderHistory = data.order_history;
+  state.draftOrder = (data.draft_order && typeof data.draft_order === 'object') ? data.draft_order : null;
   if(data.sms_settings && typeof data.sms_settings === 'object') state.smsSettings = data.sms_settings;
   if(Number.isFinite(Number(data.id_seq))) state._idSeq = Math.max(Number(data.id_seq), 2000);
   state.customers.forEach(migrateCustomer);
