@@ -75,6 +75,16 @@ const DEFAULT_PERSISTED_STATE = JSON.parse(JSON.stringify({
 
 function nextId(){ return ++state._idSeq; }
 function fmt(n){ return (n||0).toLocaleString('ko-KR'); }
+// 사용자가 입력한 텍스트(거래처명, 모델명 등)를 화면에 표시하기 전 HTML 특수문자를 이스케이프합니다.
+// innerHTML로 직접 렌더링하는 곳에 사용자가 입력한 값이 들어갈 때는 반드시 이 함수를 거칩니다.
+function escapeHtml(value){
+  return String(value ?? '')
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;')
+    .replace(/'/g,'&#39;');
+}
 function findCost(brand, model){ const c = state.costItems.find(c=>c.brand===brand && c.model===model); return c?c.cost:0; }
 function findModel(brand, model){ return state.costItems.find(c=>c.brand===brand && c.model===model) || null; }
 // 모델+가격그룹의 판매단가: 엑셀에 저장된 가격표 우선, 없으면 원가+기본마진
@@ -288,7 +298,7 @@ function renderOrderTab(){
 
   const lineRows = state.orderLines.map(l=>`
     <tr>
-      <td>${l.model}</td>
+      <td>${escapeHtml(l.model)}</td>
       <td class="r">
         <div class="line-qty-stepper">
           <button class="lqbtn" onclick="stepLineQty(${l.id},-1)">−</button>
@@ -331,14 +341,14 @@ function renderOrderTab(){
       <div style="position:relative;">
         <label class="f">거래처 (이름으로 검색)
           ${cust
-            ? `<div class="cust-picked"><span>${cust.name}</span><button class="btn ghost sm" onclick="clearOrderCustomer()">변경</button></div>`
+            ? `<div class="cust-picked"><span>${escapeHtml(cust.name)}</span><button class="btn ghost sm" onclick="clearOrderCustomer()">변경</button></div>`
             : `<input type="text" id="custSearchOrder" placeholder="거래처명 일부를 입력하세요" value="${(state.orderCustSearch||'').replace(/"/g,'&quot;')}" oninput="onOrderCustSearch(this.value)" autocomplete="off">`}
         </label>
         ${!cust ? `<div class="cust-results" id="custResults">${buildCustResults()}</div>` : ''}
       </div>
       <label class="f">공급자
         <select id="orderSupplier" onchange="onSupplierChange(this.value)">
-          ${state.suppliers.map(s=>`<option value="${s.id}" ${s.id===state.orderMeta.supplierId?'selected':''}>${s.name}</option>`).join('')}
+          ${state.suppliers.map(s=>`<option value="${s.id}" ${s.id===state.orderMeta.supplierId?'selected':''}>${escapeHtml(s.name)}</option>`).join('')}
         </select>
       </label>
     </div>
@@ -419,7 +429,7 @@ function buildModelList(){
       html += `<div class="model-chip on selected-inline" style="position:sticky;top:0;z-index:2;">
         <div class="mc-row" onclick="selectModel('${sel.replace(/'/g,"\\'")}')">
           <span class="mc-check">✓</span>
-          <span class="mc-name">${sc.model}${sc.gubun?` <span class="badge-vat">${sc.gubun}</span>`:''}</span>
+          <span class="mc-name">${escapeHtml(sc.model)}${sc.gubun?` <span class="badge-vat">${escapeHtml(sc.gubun)}</span>`:''}</span>
           <span class="mc-cost muted">${ship?`택배 ${fmt(ship)}/대`:''}</span>
         </div>
         <div class="mc-actions">
@@ -442,7 +452,7 @@ function buildModelList(){
       if(state.selectedModel===val) return ''; // 선택된 건 위에 이미 그림
       return `<button class="model-chip" onclick="selectModel('${val.replace(/'/g,"\\'")}')">
         <span class="mc-check"></span>
-        <span class="mc-name">${c.model}${c.gubun?` <span class="badge-vat">${c.gubun}</span>`:''}</span></button>`;
+        <span class="mc-name">${escapeHtml(c.model)}${c.gubun?` <span class="badge-vat">${escapeHtml(c.gubun)}</span>`:''}</span></button>`;
     }).join('');
   });
   return html || `<div class="model-empty">등록된 모델이 없습니다.</div>`;
@@ -533,7 +543,7 @@ function initCustomerTableScroll(){
 function customerResultRow(c){
   const fav=isFavoriteCustomer(c.id);
   return `<div class="cust-result-item cust-result-flex" onclick="pickOrderCustomer(${c.id})">
-    <span class="cust-result-name">${fav?'★ ':''}${c.name}</span>
+    <span class="cust-result-name">${fav?'★ ':''}${escapeHtml(c.name)}</span>
     <button type="button" class="favorite-star ${fav?'on':''}" title="즐겨찾기" onclick="toggleFavoriteCustomer(${c.id}, event)">${fav?'★':'☆'}</button>
   </div>`;
 }
@@ -675,7 +685,7 @@ function renderInvoiceTab(){
   const rows = state.orderLines.map(l=>{
     const shipLabel = l.shipVat==='none' ? '무료' : (l.shippingTotal ? `${fmt(l.shippingTotal)}<span class="badge-vat">${l.shipVat==='included'?'포함':'별도'}</span>` : '-');
     return `<tr>
-      <td class="col-model">${l.model}</td>
+      <td class="col-model">${escapeHtml(l.model)}</td>
       <td class="r num">${fmt(l.unitPrice)}</td>
       <td class="r num">${l.qty}</td>
       <td class="r num">${fmt(l.amount)}</td>
@@ -702,8 +712,8 @@ function renderInvoiceTab(){
       <div class="meta">${state.editingHistoryId?'수정 중 · ':''}발주일자 : ${state.orderMeta.date}</div>
     </div>
     <div class="invoice-meta-row">
-      <div><b>공급자</b> : ${sup?sup.name:'-'}</div>
-      <div><b>공급받는자</b> : ${cust?cust.name:'미지정'}</div>
+      <div><b>공급자</b> : ${sup?escapeHtml(sup.name):'-'}</div>
+      <div><b>공급받는자</b> : ${cust?escapeHtml(cust.name):'미지정'}</div>
     </div>
     <div class="table-wrap">
       <table class="invoice-table">
@@ -720,8 +730,8 @@ function renderInvoiceTab(){
     ${sup && (sup.bank||sup.account) ? `
     <div class="pay-box">
       <div class="pay-title">입금 계좌</div>
-      <div class="pay-line"><b>${sup.bank||''} ${sup.account||''}</b>${sup.holder?` <span class="muted">(${sup.holder})</span>`:''}</div>
-      ${sup.bizNo?`<div class="pay-sub">${sup.name} · 사업자번호 ${sup.bizNo}</div>`:''}
+      <div class="pay-line"><b>${escapeHtml(sup.bank||'')} ${escapeHtml(sup.account||'')}</b>${sup.holder?` <span class="muted">(${escapeHtml(sup.holder)})</span>`:''}</div>
+      ${sup.bizNo?`<div class="pay-sub">${escapeHtml(sup.name)} · 사업자번호 ${escapeHtml(sup.bizNo)}</div>`:''}
     </div>` : ''}
   </div>`;
 }
@@ -799,11 +809,11 @@ function filteredHistory(){
 }
 function historyRows(list){
   return list.map(h=>{
-    const items=(h.lines||[]).map(l=>`${l.model} ${l.qty}대`).join(', ');
+    const items=(h.lines||[]).map(l=>`${escapeHtml(l.model)} ${l.qty}대`).join(', ');
     return `<tr>
       <td class="num">${h.orderNo||'-'}</td>
       <td>${h.date||'-'}</td>
-      <td>${h.customerName||'-'}</td>
+      <td>${escapeHtml(h.customerName||'-')}</td>
       <td class="muted" style="font-size:12px;max-width:280px;white-space:normal;">${items}</td>
       <td class="r num">${fmt(h.grand)}원</td>
       <td class="r history-actions">
@@ -1412,7 +1422,7 @@ async function processAllFiles(files){
     const box=document.getElementById('allResult');
     if(box){
       box.innerHTML=`<div class="card" style="margin-top:4px;"><div class="section-title">불러오기 결과</div>`+
-        results.map(r=>`<div style="font-size:13.5px;padding:5px 0;border-bottom:1px solid var(--line);"><b>${r.name}</b> → ${r.kind}${r.msg?` <span class="muted">(${r.msg})</span>`:''}</div>`).join('')+`</div>`;
+        results.map(r=>`<div style="font-size:13.5px;padding:5px 0;border-bottom:1px solid var(--line);"><b>${escapeHtml(r.name)}</b> → ${escapeHtml(r.kind)}${r.msg?` <span class="muted">(${escapeHtml(r.msg)})</span>`:''}</div>`).join('')+`</div>`;
     }
   },50);
   toast(files.length+'개 파일을 처리했습니다');
@@ -1530,7 +1540,7 @@ function applySupplierAoa(aoa){
 function renderSupplierSettings(){
   const rows = state.suppliers.map(s=>`
     <div class="sup-card">
-      <div class="sup-name">${s.name}</div>
+      <div class="sup-name">${escapeHtml(s.name)}</div>
       <div class="sup-grid">
         <label class="f">상호<input type="text" value="${(s.name||'').replace(/"/g,'&quot;')}" onchange="updateSupplier(${s.id},'name',this.value)"></label>
         <label class="f">사업자번호<input type="text" value="${(s.bizNo||'').replace(/"/g,'&quot;')}" placeholder="000-00-00000" onchange="updateSupplier(${s.id},'bizNo',this.value)"></label>
@@ -1639,10 +1649,10 @@ function buildCustSettingRows(){
   const list=q?state.customers.filter(c=>c.name.includes(q)):state.customers;
   if(list.length===0) return `<tr><td colspan="8" class="empty">${q?'검색 결과가 없습니다.':'등록된 거래처가 없습니다.'}</td></tr>`;
   return list.map(c=>{ const fav=isFavoriteCustomer(c.id); const href=phoneHref(c.phone); return `
-    <tr><td class="fav-col"><button type="button" class="favorite-star ${fav?'on':''}" title="${fav?'즐겨찾기 해제':'즐겨찾기 등록'}" onclick="toggleFavoriteCustomerSetting(${c.id},event)">${fav?'★':'☆'}</button></td><td>${c.name}</td>
+    <tr><td class="fav-col"><button type="button" class="favorite-star ${fav?'on':''}" title="${fav?'즐겨찾기 해제':'즐겨찾기 등록'}" onclick="toggleFavoriteCustomerSetting(${c.id},event)">${fav?'★':'☆'}</button></td><td>${escapeHtml(c.name)}</td>
     <td><input type="text" class="inline-phone" value="${(c.bizNo||'').replace(/"/g,'&quot;')}" placeholder="사업자번호" onchange="updateCustField(${c.id},'bizNo',this.value)"></td>
     <td><input type="text" class="inline-phone" value="${(c.representative||'').replace(/"/g,'&quot;')}" placeholder="대표자" onchange="updateCustField(${c.id},'representative',this.value)"></td>
-    <td><div class="phone-cell"><input type="text" class="inline-phone" value="${(c.phone||'').replace(/"/g,'&quot;')}" placeholder="010-0000-0000" onchange="updateCustPhone(${c.id},this.value)">${href?`<a class="call-link" href="${href}" title="${c.name}에게 전화">전화</a>`:''}</div></td>
+    <td><div class="phone-cell"><input type="text" class="inline-phone" value="${(c.phone||'').replace(/"/g,'&quot;')}" placeholder="010-0000-0000" onchange="updateCustPhone(${c.id},this.value)">${href?`<a class="call-link" href="${href}" title="${escapeHtml(c.name)}에게 전화">전화</a>`:''}</div></td>
     <td><div style="display:flex;gap:4px;flex-wrap:wrap;">${BRANDS.map(b=>`<select class="inline-sel" style="width:auto;" onchange="updateCustGroup(${c.id},'${b}',this.value)" title="${brandShort(b)}">${PRICE_GROUP_KEYS.map(g=>`<option ${(c.priceGroups&&c.priceGroups[b])===g?'selected':''}>${g}</option>`).join('')}</select>`).join('')}</div></td>
     <td><select class="inline-sel" onchange="updateCustShipVat(${c.id},this.value)"><option value="none" ${c.shipVat==='none'?'selected':''}>무료</option><option value="separate" ${c.shipVat==='separate'?'selected':''}>별도</option><option value="included" ${c.shipVat==='included'?'selected':''}>포함</option></select></td>
     <td class="r"><button class="btn danger" onclick="removeCustomer(${c.id})">삭제</button></td></tr>`; }).join('');
@@ -1764,9 +1774,9 @@ function processCustFile(file){
 function renderCustImportModal(){
   const p=state.pendingCustImport; const c=p.changes;
   const rows=[
-    ...c.newRows.slice(0,30).map(x=>`<tr><td><b>신규</b></td><td>${x.name}</td><td>${x.bizNo||'-'}</td><td>새로 등록</td></tr>`),
-    ...c.modified.slice(0,30).map(m=>`<tr><td><b>수정</b></td><td>${m.x.name}</td><td>${m.x.bizNo||'-'}</td><td>${Object.keys(m.patch).map(k=>({representative:'대표자',tel:'전화',mobile:'휴대폰',email:'이메일',phone:'연락처',name:'거래처명',bizNo:'사업자번호'}[k]||k)).join(', ')}</td></tr>`),
-    ...c.invalid.slice(0,10).map(x=>`<tr><td>확인</td><td>${x.name}</td><td>-</td><td>${x.reason} · 자동 추가 제외</td></tr>`)
+    ...c.newRows.slice(0,30).map(x=>`<tr><td><b>신규</b></td><td>${escapeHtml(x.name)}</td><td>${escapeHtml(x.bizNo||'-')}</td><td>새로 등록</td></tr>`),
+    ...c.modified.slice(0,30).map(m=>`<tr><td><b>수정</b></td><td>${escapeHtml(m.x.name)}</td><td>${escapeHtml(m.x.bizNo||'-')}</td><td>${Object.keys(m.patch).map(k=>({representative:'대표자',tel:'전화',mobile:'휴대폰',email:'이메일',phone:'연락처',name:'거래처명',bizNo:'사업자번호'}[k]||k)).join(', ')}</td></tr>`),
+    ...c.invalid.slice(0,10).map(x=>`<tr><td>확인</td><td>${escapeHtml(x.name)}</td><td>-</td><td>${escapeHtml(x.reason)} · 자동 추가 제외</td></tr>`)
   ].join('');
   document.getElementById('modalRoot').innerHTML=`<div class="modal-bg"><div class="modal" style="max-width:820px;">
     <h3>거래처 엑셀 적용 전 확인</h3>
@@ -1797,7 +1807,7 @@ function processSupplierFile(file){
     state.pendingSupplierImport={fileName:file.name,changes}; renderSupplierImportModal();
   }catch(err){alert('엑셀 읽기 오류: '+err.message);} }; reader.readAsArrayBuffer(file);
 }
-function renderSupplierImportModal(){ const p=state.pendingSupplierImport,c=p.changes; const rows=[...c.newRows.map(x=>`<tr><td>신규</td><td>${x.name}</td><td>${x.bizNo||'-'}</td><td>새 공급자 추가</td></tr>`),...c.modified.map(m=>`<tr><td>수정</td><td>${m.x.name}</td><td>${m.x.bizNo||'-'}</td><td>${Object.keys(m.patch).join(', ')}</td></tr>`)].join(''); document.getElementById('modalRoot').innerHTML=`<div class="modal-bg"><div class="modal"><h3>공급자 엑셀 적용 전 확인</h3><p>신규 <b>${c.newRows.length}</b>곳 · 수정 <b>${c.modified.length}</b>곳 · 변경 없음 <b>${c.unchanged.length}</b>곳</p><div class="table-wrap"><table><thead><tr><th>구분</th><th>공급자</th><th>사업자번호</th><th>반영 내용</th></tr></thead><tbody>${rows||'<tr><td colspan="4" class="empty">변경사항이 없습니다.</td></tr>'}</tbody></table></div><div class="modal-actions"><button class="btn ghost" onclick="cancelSupplierImport()">취소</button><button class="btn accent" onclick="confirmSupplierImport()" ${(c.newRows.length+c.modified.length)?'':'disabled'}>적용하기</button></div></div></div>`; }
+function renderSupplierImportModal(){ const p=state.pendingSupplierImport,c=p.changes; const rows=[...c.newRows.map(x=>`<tr><td>신규</td><td>${escapeHtml(x.name)}</td><td>${escapeHtml(x.bizNo||'-')}</td><td>새 공급자 추가</td></tr>`),...c.modified.map(m=>`<tr><td>수정</td><td>${escapeHtml(m.x.name)}</td><td>${escapeHtml(m.x.bizNo||'-')}</td><td>${Object.keys(m.patch).join(', ')}</td></tr>`)].join(''); document.getElementById('modalRoot').innerHTML=`<div class="modal-bg"><div class="modal"><h3>공급자 엑셀 적용 전 확인</h3><p>신규 <b>${c.newRows.length}</b>곳 · 수정 <b>${c.modified.length}</b>곳 · 변경 없음 <b>${c.unchanged.length}</b>곳</p><div class="table-wrap"><table><thead><tr><th>구분</th><th>공급자</th><th>사업자번호</th><th>반영 내용</th></tr></thead><tbody>${rows||'<tr><td colspan="4" class="empty">변경사항이 없습니다.</td></tr>'}</tbody></table></div><div class="modal-actions"><button class="btn ghost" onclick="cancelSupplierImport()">취소</button><button class="btn accent" onclick="confirmSupplierImport()" ${(c.newRows.length+c.modified.length)?'':'disabled'}>적용하기</button></div></div></div>`; }
 function cancelSupplierImport(){state.pendingSupplierImport=null;closeModal();}
 function confirmSupplierImport(){const c=state.pendingSupplierImport.changes;let a=0,u=0;c.newRows.forEach(x=>{state.suppliers.push({id:nextId(),...x});a++;});c.modified.forEach(m=>{const old=state.suppliers.find(x=>x.id===m.id);if(old){Object.assign(old,m.patch);u++;}});state.pendingSupplierImport=null;saveData();closeModal();render();toast(`공급자 신규 ${a}곳 · 수정 ${u}곳을 적용했습니다`);}
 
@@ -1855,7 +1865,7 @@ function renderImportModal(){
   if(hasCost) cols+='<th class="r">원가</th>';
   if(hasShip) cols+='<th class="r">배송비</th>';
   const rowsHtml = rows.map(r=>{
-    let c=`<td>${r.brand||'-'}</td><td>${r.model}${r.gubun?` <span class="badge-vat">${r.gubun}</span>`:''}</td>`;
+    let c=`<td>${escapeHtml(r.brand||'-')}</td><td>${escapeHtml(r.model)}${r.gubun?` <span class="badge-vat">${escapeHtml(r.gubun)}</span>`:''}</td>`;
     if(hasCost) c+=`<td class="r num">${fmt(r.cost)}</td>`;
     if(hasShip) c+=`<td class="r num">${fmt(r.fee)}</td>`;
     return `<tr>${c}</tr>`;
