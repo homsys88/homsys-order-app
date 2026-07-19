@@ -51,9 +51,38 @@
 <script src="storage.js"></script>
 <script>
 if ('serviceWorker' in navigator) {
+  let refreshing = false;
+
   window.addEventListener('load', async () => {
     try {
-      await navigator.serviceWorker.register('sw.js', { scope: './' });
+      const registration = await navigator.serviceWorker.register('/sw.js?v=14-1', {
+        scope: '/',
+        updateViaCache: 'none'
+      });
+
+      await registration.update();
+
+      if (registration.waiting) {
+        registration.waiting.postMessage({ type: 'SKIP_WAITING' });
+      }
+
+      registration.addEventListener('updatefound', () => {
+        const newWorker = registration.installing;
+        if (!newWorker) return;
+
+        newWorker.addEventListener('statechange', () => {
+          if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+            newWorker.postMessage({ type: 'SKIP_WAITING' });
+          }
+        });
+      });
+
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (refreshing) return;
+        refreshing = true;
+        window.location.reload();
+      });
+
       console.log('홈시스 PWA 등록 완료');
     } catch (error) {
       console.error('홈시스 PWA 등록 실패:', error);
