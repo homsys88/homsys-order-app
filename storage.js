@@ -132,6 +132,166 @@ function startRealtimeSync(){
     .subscribe(status => console.log('실시간 동기화 상태:', status));
 }
 
+/* ===== 백업 / 복구 =====
+   기존 저장 구조(cloudPayload/applyCloudPayload)는 그대로 재사용하고,
+   백업 파일 생성·검증·자동백업 관리 기능만 추가합니다. */
+const BACKUP_APP_ID = 'homsys-order-backup';
+const BACKUP_FORMAT_VERSION = 1;
+const AUTO_BACKUP_KEEP = 5;
+const AUTO_BACKUP_TABLE = 'app_state_backups';
+
+function backupTimestamp(d = new Date()){
+  const p = n => String(n).padStart(2,'0');
+  return `${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+}
+
+function backupTableCounts(data){
+  return {
+    customers: (data.customers||[]).length,
+    suppliers: (data.suppliers||[]).length,
+    order_history: (data.order_history||[]).length,
+    cost_items: (data.cost_items||[]).length,
+    shipping_items: (data.shipping_items||[]).length
+  };
+}
+
+// 전체 백업 파일(JSON) 객체 생성 — 기존 cloudPayload()를 그대로 담습니다.
+function buildBackupFile(){
+  const data = cloudPayload();
+  return {
+    app: BACKUP_APP_ID,
+    backup_version: BACKUP_FORMAT_VERSION,
+    data_version: DATA_VERSION,
+    created_at: new Date().toISOString(),
+    table_counts: backupTableCounts(data),
+    data
+  };
+}
+
+// 백업 JSON 파일 다운로드
+function downloadBackupFile(){
+  const backup = buildBackupFile();
+  const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `homsys-order-backup-${backupTimestamp()}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 3000);
+  toast('백업 파일을 다운로드했습니다');
+}
+
+// 복원 전 파일 구조 검사 (덮어쓰기 전 1차 검증)
+function validateBackupFile(obj){
+  const errors = [];
+  if(!obj || typeof obj !== 'object'){
+    errors.push('올바른 JSON 파일이 아닙니다.');
+    return { ok:false, errors };
+  }
+  if(obj.app !== BACKUP_APP_ID) errors.push('홈시스 발주앱 백업 파일이 아닙니다.');
+  const d = obj.data;
+  if(!d || typeof d !== 'object'){
+    errors.push('백업 안에 데이터가 없습니다.');
+  }else{
+    ['customers','suppliers','cost_items','shipping_items','order_history'].forEach(k=>{
+      if(!Array.isArray(d[k])) errors.push(`${k} 데이터 구조가 올바르지 않습니다.`);
+    });
+  }
+  if(Number(obj.data_version||0) > DATA_VERSION){
+    errors.push('이 백업은 현재 앱보다 새 버전에서 만들어졌습니다. 앱을 먼저 업데이트해주세요.');
+  }
+  return { ok: errors.length===0, errors };
+}
+
+// 실제 복원 처리: 복원 직전 안전백업 → 기존 applyCloudPayload로 상태 반영 → 클라우드 저장
+// (주의) app_state는 전 직원 공용 데이터라 복원 즉시 다른 접속 기기에도 실시간 반영됩니다.
+async function restoreFromBackup(backup){
+  await saveAutoBackup('pre-restore-backup');
+  applyCloudPayload(backup.data);
+  const ok = await saveCloudNow();
+  if(ok){ render(); toast('백업을 복원했습니다'); }
+  return ok;
+}
+
+/* ---- 자동백업 보관 (Supabase 테이블: app_state_backups) ---- */
+async function saveAutoBackup(label='auto'){
+  if(!db) return false;
+  const backup = buildBackupFile();
+  try{
+    const { error } = await db.from(AUTO_BACKUP_TABLE).insert({
+      label,
+      data: backup,
+      table_counts: backup.table_counts,
+      created_at: backup.created_at
+    });
+    if(error) throw error;
+    await trimAutoBackups();
+    return true;
+  }catch(e){
+    console.error('자동백업 저장 실패:', e);
+    return false;
+  }
+}
+
+async function listAutoBackups(){
+  if(!db) return [];
+  const { data, error } = await db
+    .from(AUTO_BACKUP_TABLE)
+    .select('id, label, table_counts, created_at')
+    .order('created_at', { ascending:false });
+  if(error){ console.error('자동백업 목록 조회 실패:', error); return []; }
+  return data || [];
+}
+
+async function trimAutoBackups(){
+  if(!db) return;
+  const { data, error } = await db
+    .from(AUTO_BACKUP_TABLE)
+    .select('id, created_at')
+    .order('created_at', { ascending:false });
+  if(error || !data) return;
+  const excess = data.slice(AUTO_BACKUP_KEEP);
+  if(excess.length){
+    await db.from(AUTO_BACKUP_TABLE).delete().in('id', excess.map(r=>r.id));
+  }
+}
+
+async function deleteAutoBackup(id){
+  if(!db) return false;
+  const { error } = await db.from(AUTO_BACKUP_TABLE).delete().eq('id', id);
+  if(error){ console.error('자동백업 삭제 실패:', error); return false; }
+  return true;
+}
+
+async function fetchAutoBackupData(id){
+  if(!db) return null;
+  const { data, error } = await db.from(AUTO_BACKUP_TABLE).select('data').eq('id', id).maybeSingle();
+  if(error || !data) return null;
+  return data.data;
+}
+
+// 로그인 직후 1회 호출: 오늘자 자동백업이 없으면 만듭니다 (저장할 때마다 만들지 않음)
+async function maybeCreateDailyAutoBackup(){
+  if(!db) return;
+  try{
+    const { data, error } = await db
+      .from(AUTO_BACKUP_TABLE)
+      .select('created_at')
+      .eq('label', 'daily')
+      .order('created_at', { ascending:false })
+      .limit(1)
+      .maybeSingle();
+    if(error) return;
+    const today = localTodayISO();
+    const lastDay = data && data.created_at ? data.created_at.slice(0,10) : '';
+    if(lastDay !== today) await saveAutoBackup('daily');
+  }catch(e){
+    console.error('일일 자동백업 확인 실패:', e);
+  }
+}
+
 let authBooted = false;
 
 function showLogin(message=''){
@@ -173,6 +333,7 @@ async function bootAuthorizedApp(session){
     await loadData();
     render();
     startRealtimeSync();
+    maybeCreateDailyAutoBackup();
   }catch(e){
     console.error('보안 연결 실패:', e);
     document.getElementById('app').innerHTML = `<div class="card"><h2>데이터 접근 실패</h2><p class="desc">로그인은 되었지만 app_state RLS 정책이 아직 설정되지 않았을 수 있습니다.</p></div>`;

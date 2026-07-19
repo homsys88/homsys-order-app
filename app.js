@@ -284,6 +284,7 @@ function render(){
   else if(state.tab==='history') app.innerHTML = renderHistoryTab();
   else if(state.tab==='settings') app.innerHTML = renderSettingsTab();
   if(state.tab==='settings' && state.settingsSub==='customer') requestAnimationFrame(initCustomerTableScroll);
+  if(state.tab==='settings' && state.settingsSub==='backup') requestAnimationFrame(loadAutoBackupListUI);
 }
 
 function toast(msg){
@@ -1179,6 +1180,7 @@ function renderSettingsTab(){
       <button class="${sub==='supplier'?'on':''}" onclick="setSettingsSub('supplier')">공급자</button>
       <button class="${sub==='sms'?'on':''}" onclick="setSettingsSub('sms')">문자발송</button>
       <button class="${sub==='account'?'on':''}" onclick="setSettingsSub('account')">계정·비밀번호</button>
+      <button class="${sub==='backup'?'on':''}" onclick="setSettingsSub('backup')">💾 백업</button>
     </div>`;
   let body='';
   if(sub==='import') body = renderImportAllSettings();
@@ -1187,6 +1189,7 @@ function renderSettingsTab(){
   else if(sub==='sms') body = renderSmsSettings();
   else if(sub==='supplier') body = renderSupplierSettings();
   else if(sub==='account') body = renderAccountSettings();
+  else if(sub==='backup') body = renderBackupSettings();
   else body = renderCustomerSettings();
   return subNav + body;
 }
@@ -1232,6 +1235,125 @@ function renderSmsSettings(){
   <div class="lock-hint">솔라피 API Key·Secret과 발신번호는 Supabase Edge Function Secrets에만 저장됩니다.</div>
   <p class="desc">로그인한 사용자만 문자 또는 이미지 문자 발송을 요청할 수 있습니다. 앱과 GitHub에는 비밀키가 저장되지 않습니다.</p>
   <div class="pick-summary" style="margin-top:12px;"><b>연동 함수:</b> send-solapi-message<br><b>발송 방식:</b> LMS/SMS 자동, MMS 이미지 발송<br><b>발주 저장:</b> 문자발송과 별도</div></div>`;
+}
+
+/* =================== 백업 =================== */
+function renderBackupSettings(){
+  return `<div class="card">
+    <h2>💾 전체 백업</h2>
+    <p class="desc">거래처·공급자·원가표·택배비표·발주이력을 파일 하나로 저장하거나, 저장해둔 파일로 되돌릴 수 있습니다. 문자발송 보안키는 포함되지 않습니다.</p>
+    <div class="row" style="gap:10px;margin-top:14px;flex-wrap:wrap;">
+      <button class="btn accent" onclick="downloadBackupFile()">⬇️ 지금 백업 파일 다운로드</button>
+      <button class="btn ghost" onclick="document.getElementById('restoreFileInput').click()">⬆️ 백업 파일로 복원</button>
+      <input type="file" id="restoreFileInput" accept="application/json,.json" style="display:none" onchange="handleBackupFileSelect(event)">
+    </div>
+  </div>
+  <div class="card">
+    <div class="section-title">최근 자동백업</div>
+    <p class="desc small">매일 처음 접속할 때, 그리고 복원 직전에 자동으로 만들어지며 최근 ${AUTO_BACKUP_KEEP}개만 보관됩니다.</p>
+    <button class="btn ghost" style="margin:8px 0 14px;" onclick="manualAutoBackupNow()">지금 자동백업 만들기</button>
+    <div id="autoBackupList" class="desc">불러오는 중...</div>
+  </div>`;
+}
+
+function fmtBackupDate(iso){
+  if(!iso) return '-';
+  const d = new Date(iso);
+  if(Number.isNaN(d.getTime())) return iso;
+  const p = n => String(n).padStart(2,'0');
+  return `${d.getFullYear()}.${p(d.getMonth()+1)}.${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+function backupLabelText(label){
+  return label==='daily' ? '일일 자동백업' : label==='pre-restore-backup' ? '복원 전 안전백업' : label || '자동백업';
+}
+
+async function loadAutoBackupListUI(){
+  const box = document.getElementById('autoBackupList');
+  if(!box) return;
+  const list = await listAutoBackups();
+  if(!list.length){ box.innerHTML = '<p class="desc small">아직 자동백업이 없습니다.</p>'; return; }
+  box.innerHTML = `<table><thead><tr><th>구분</th><th>생성 시각</th><th>거래처</th><th>발주이력</th><th></th></tr></thead><tbody>` +
+    list.map(b => `<tr>
+      <td>${escapeHtml(backupLabelText(b.label))}</td>
+      <td>${fmtBackupDate(b.created_at)}</td>
+      <td>${(b.table_counts&&b.table_counts.customers)??'-'}</td>
+      <td>${(b.table_counts&&b.table_counts.order_history)??'-'}</td>
+      <td style="white-space:nowrap;">
+        <button class="btn ghost" onclick="restoreAutoBackupUI(${b.id})">복원</button>
+        <button class="btn ghost" onclick="deleteAutoBackupUI(${b.id})">삭제</button>
+      </td>
+    </tr>`).join('') + `</tbody></table>`;
+}
+
+async function manualAutoBackupNow(){
+  const ok = await saveAutoBackup('manual');
+  if(ok){ toast('자동백업을 만들었습니다'); loadAutoBackupListUI(); }
+  else alert('자동백업 생성에 실패했습니다. Supabase 연결과 app_state_backups 테이블 권한을 확인해주세요.');
+}
+
+async function deleteAutoBackupUI(id){
+  if(!confirm('이 자동백업을 삭제할까요?')) return;
+  const ok = await deleteAutoBackup(id);
+  if(ok) loadAutoBackupListUI();
+  else alert('삭제에 실패했습니다.');
+}
+
+async function restoreAutoBackupUI(id){
+  const data = await fetchAutoBackupData(id);
+  if(!data){ alert('자동백업을 불러오지 못했습니다.'); return; }
+  openRestoreConfirmModal(data);
+}
+
+// 파일 선택으로 복원 시작 (검증 → 확인창)
+function handleBackupFileSelect(evt){
+  const file = evt.target.files && evt.target.files[0];
+  evt.target.value = '';
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    let parsed;
+    try{ parsed = JSON.parse(reader.result); }
+    catch(e){ alert('올바른 JSON 파일이 아닙니다.'); return; }
+    const check = validateBackupFile(parsed);
+    if(!check.ok){ alert('백업 파일을 확인할 수 없습니다.\n\n' + check.errors.join('\n')); return; }
+    openRestoreConfirmModal(parsed);
+  };
+  reader.onerror = () => alert('파일을 읽지 못했습니다.');
+  reader.readAsText(file);
+}
+
+function openRestoreConfirmModal(backup){
+  state.pendingRestoreBackup = backup;
+  const cur = backupTableCounts(cloudPayload());
+  const next = backup.table_counts || backupTableCounts(backup.data);
+  const row = (label, curN, nextN) => `<tr><td>${label}</td><td>${curN}</td><td style="font-weight:700;color:${curN===nextN?'inherit':'var(--accent-ink)'};">${nextN}</td></tr>`;
+  document.getElementById('modalRoot').innerHTML = `<div class="modal-bg"><div class="modal">
+    <h3>백업 복원 확인</h3>
+    <p class="desc">백업 생성: <b>${fmtBackupDate(backup.created_at)}</b></p>
+    <div class="table-wrap"><table><thead><tr><th></th><th>현재</th><th>복원 후</th></tr></thead><tbody>
+      ${row('거래처', cur.customers, next.customers)}
+      ${row('공급자', cur.suppliers, next.suppliers)}
+      ${row('발주이력', cur.order_history, next.order_history)}
+      ${row('원가표', cur.cost_items, next.cost_items)}
+      ${row('택배비표', cur.shipping_items, next.shipping_items)}
+    </tbody></table></div>
+    <p class="desc small" style="color:var(--accent-ink);margin-top:10px;">⚠️ 지금 로그인되어 있는 다른 기기에도 즉시 반영됩니다. 복원 전 현재 상태는 자동으로 안전백업됩니다.</p>
+    <div class="modal-actions">
+      <button class="btn ghost" onclick="cancelRestoreBackup()">취소</button>
+      <button class="btn accent" onclick="confirmRestoreBackup()">복원 실행</button>
+    </div>
+  </div></div>`;
+}
+function cancelRestoreBackup(){ state.pendingRestoreBackup = null; closeModal(); }
+async function confirmRestoreBackup(){
+  const backup = state.pendingRestoreBackup;
+  if(!backup) return;
+  const btn = document.querySelector('#modalRoot .btn.accent');
+  if(btn){ btn.disabled = true; btn.textContent = '복원 중...'; }
+  const ok = await restoreFromBackup(backup);
+  state.pendingRestoreBackup = null;
+  closeModal();
+  if(ok) render();
 }
 
 async function resetOne(what){
