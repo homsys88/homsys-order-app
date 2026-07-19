@@ -1,10 +1,10 @@
 {
-  "id": "/",
+  "id": "/?app=order-v13",
   "name": "발주",
   "short_name": "발주",
   "description": "홈시스 전기온수기 발주 작성·저장·거래명세서 관리",
   "lang": "ko-KR",
-  "start_url": "/?source=pwa",
+  "start_url": "/?source=pwa&v=13",
   "scope": "/",
   "display": "standalone",
   "display_override": [
