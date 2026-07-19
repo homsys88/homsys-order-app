@@ -264,6 +264,34 @@ async function sendMmsSecure(to, subject, text, imageBase64){
   return sendSolapiSecure({mode:'mms',to,subject,text,imageBase64});
 }
 
+/* ===== 카카오 알림톡 (발주 요약 안내) ===== */
+// 채널/템플릿은 비밀키가 아니라 공개 식별자라 코드에 둡니다. (Solapi 콘솔 > 카카오/네이버/RCS)
+const KAKAO_PF_ID = 'KA01PF260703021005893EzZlbUkohfM';
+const KAKAO_ORDER_TEMPLATE_ID = 'w0bAFOf7g5'; // "발주내역안내" 템플릿 (검수 완료 후 사용 가능)
+
+function buildKakaoOrderVariables(){
+  const cust = currentCustomer();
+  const sup = currentSupplier();
+  const t = calcTotals();
+  const account = sup ? `${sup.bank||''} ${sup.account||''}${sup.holder?` (${sup.holder})`:''}`.trim() : '';
+  return {
+    '공급자': sup ? sup.name : '',
+    '거래처': cust ? cust.name : '',
+    '합계': fmt(t.grand),
+    '계좌': account
+  };
+}
+
+async function sendKakaoOrderNotice(to){
+  return sendSolapiSecure({
+    mode: 'kakao',
+    to,
+    pfId: KAKAO_PF_ID,
+    templateId: KAKAO_ORDER_TEMPLATE_ID,
+    variables: buildKakaoOrderVariables()
+  });
+}
+
 const TABS = [
   {key:'order', label:'발주 작성'},
   {key:'invoice', label:'거래명세서'},
@@ -1150,21 +1178,55 @@ async function doSendSms(){
   }
 }
 function openKakaoModal(){
+  const cust=currentCustomer();
+  const vars=buildKakaoOrderVariables();
+  const defaultTo = cust && cust.phone ? cust.phone : '';
   document.getElementById('modalRoot').innerHTML = `
   <div class="modal-bg" onclick="if(event.target===this) closeModal()">
     <div class="modal">
       <h3>💬 카톡 발송</h3>
-      <p>카카오 알림톡은 <b>사전 승인된 템플릿</b>이 있어야 발송할 수 있습니다. 거래명세서처럼 매번 내용이 바뀌는 표는 알림톡 템플릿으로 만들기 어려워, 실무에서는 보통 아래 방법을 씁니다:</p>
-      <div class="pick-summary" style="margin:0 0 12px;">
-        <b>추천:</b> 위에서 <b>PDF를 다운로드</b>한 뒤, 카카오톡에서 거래처 채팅방에 그 PDF 파일을 첨부해 보내세요. 표·금액이 그대로 깔끔하게 전달됩니다.
-      </div>
-      <p>단순 요약(합계금액 등)만 카톡 알림톡으로 보내고 싶다면, 솔라피에 발주용 알림톡 템플릿을 하나 등록한 뒤 연동할 수 있어요. 필요하면 그 설정을 도와드릴게요.</p>
+      <div class="lock-hint" style="margin-bottom:12px;">카카오 알림톡(발주내역안내 템플릿)으로 짧은 요약 알림을 보냅니다. 템플릿이 솔라피 검수 중이면 승인 전까지는 발송이 실패할 수 있습니다.</div>
+
+      <label class="f" style="margin-bottom:10px;">받는 사람 번호
+        <input type="text" id="kakaoTo" placeholder="010-0000-0000" value="${defaultTo}" style="width:100%;"></label>
+
+      <div class="pick-summary" style="margin:0 0 12px;white-space:pre-line;">[${escapeHtml(vars['공급자'])}] 발주 내역 안내
+
+${escapeHtml(vars['거래처'])}님, 발주해 주셔서 감사합니다.
+아래 내역으로 발주가 확인되었습니다.
+
+▶ 합계금액: ${escapeHtml(vars['합계'])}원 (VAT포함)
+▶ 입금계좌: ${escapeHtml(vars['계좌'])}
+
+상세 명세서는 별도로 전달드립니다.</div>
+
+      <p class="desc small">품목별 상세 표는 알림톡 템플릿에 담기 어려워서, 위 요약 알림만 자동 발송됩니다. <b>상세 거래명세서는 위 "PDF 다운로드"</b>로 받아 카카오톡 채팅방에 직접 첨부해 보내주세요.</p>
+
+      <div id="kakaoResult" style="font-size:13px;margin-top:4px;"></div>
       <div class="modal-actions">
         <button class="btn ghost" onclick="closeModal()">닫기</button>
-        <button class="btn accent" onclick="closeModal(); makePDF();">PDF 만들어서 카톡으로 보내기</button>
+        <button class="btn accent" id="kakaoSendBtn" onclick="doSendKakao()">알림톡 보내기</button>
       </div>
     </div>
   </div>`;
+}
+async function doSendKakao(){
+  const to=document.getElementById('kakaoTo').value.trim();
+  const rd=document.getElementById('kakaoResult');
+  const btn=document.getElementById('kakaoSendBtn');
+  if(!to){ rd.innerHTML='<span style="color:var(--danger)">받는 번호를 입력하세요.</span>'; return; }
+  btn.disabled=true; btn.textContent='보내는 중…';
+  rd.innerHTML='<span class="muted">보안 서버를 통해 발송 중…</span>';
+  try{
+    await sendKakaoOrderNotice(to);
+    rd.innerHTML='<span style="color:var(--teal)">✓ 알림톡을 발송했습니다.</span>';
+    btn.textContent='발송됨';
+    toast('알림톡을 발송했습니다');
+    setTimeout(closeModal, 1400);
+  }catch(err){
+    rd.innerHTML='<span style="color:var(--danger)">발송 실패: '+err.message+'</span>';
+    btn.disabled=false; btn.textContent='알림톡 보내기';
+  }
 }
 function closeModal(){ document.getElementById('modalRoot').innerHTML=''; }
 
