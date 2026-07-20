@@ -46,11 +46,12 @@
   .date-compact-wrap input[type="date"]{position:absolute;inset:0;opacity:0;width:100%;height:100%;cursor:pointer;}
   button.btn.btn-x{padding:5px 9px;font-size:14px;font-weight:800;line-height:1;}
   @media (max-width:640px){
-    table.order-lines-table{min-width:0;width:100%;}
     table.order-lines-table th.col-brand,table.order-lines-table td.col-brand{display:none;}
+    table.order-lines-table th.col-amount,table.order-lines-table td.col-amount{display:none;}
     table.order-lines-table th,table.order-lines-table td{padding:8px 6px;white-space:normal;}
-    table.order-lines-table th:first-child,table.order-lines-table td:first-child{white-space:normal;word-break:break-word;}
+    table.order-lines-table th:first-child,table.order-lines-table td:first-child{white-space:normal;word-break:break-word;max-width:110px;}
   }
+  .col-model-wrap{white-space:normal;word-break:break-word;max-width:140px;}
   @media (max-width:640px){
     table.invoice-table td.col-model,table.invoice-table th:first-child{white-space:normal;word-break:break-word;max-width:120px;}
   }

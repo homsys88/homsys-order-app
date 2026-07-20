@@ -296,6 +296,7 @@ const TABS = [
   {key:'order', label:'발주 작성'},
   {key:'invoice', label:'거래명세서'},
   {key:'history', label:'발주 이력'},
+  {key:'pricelist', label:'가격표'},
   {key:'settings', label:'설정'},
 ];
 function renderTabs(){
@@ -310,6 +311,7 @@ function render(){
   if(state.tab==='order') app.innerHTML = renderOrderTab();
   else if(state.tab==='invoice') app.innerHTML = renderInvoiceTab();
   else if(state.tab==='history') app.innerHTML = renderHistoryTab();
+  else if(state.tab==='pricelist') app.innerHTML = renderPriceListTab();
   else if(state.tab==='settings') app.innerHTML = renderSettingsTab();
   if(state.tab==='settings' && state.settingsSub==='customer') requestAnimationFrame(initCustomerTableScroll);
   if(state.tab==='settings' && state.settingsSub==='backup') requestAnimationFrame(loadAutoBackupListUI);
@@ -327,7 +329,7 @@ function renderOrderTab(){
 
   const lineRows = state.orderLines.map(l=>`
     <tr>
-      <td>${escapeHtml(l.model)}</td>
+      <td class="col-model-wrap">${escapeHtml(l.model)}</td>
       <td class="r">
         <div class="line-qty-stepper">
           <button class="lqbtn" onclick="stepLineQty(${l.id},-1)">−</button>
@@ -335,6 +337,7 @@ function renderOrderTab(){
           <button class="lqbtn" onclick="stepLineQty(${l.id},1)">＋</button>
         </div>
       </td>
+      <td class="r num">${fmt(l.unitPrice)}</td>
       <td class="r">
         <select class="inline-sel" onchange="changeLineShip(${l.id}, this.value)">
           <option value="none" ${l.shipVat==='none'?'selected':''}>무료</option>
@@ -342,6 +345,7 @@ function renderOrderTab(){
           <option value="included" ${l.shipVat==='included'?'selected':''}>포함</option>
         </select>
       </td>
+      <td class="r num col-amount">${fmt(l.amount)}</td>
       <td class="col-brand"><span class="pill ${brandClass(l.brand)}">${brandShort(l.brand)}</span></td>
       <td class="r"><button class="btn danger btn-x" onclick="removeLine(${l.id})">×</button></td>
     </tr>`).join('');
@@ -422,7 +426,7 @@ function renderOrderTab(){
     <div class="step-head"><span class="step-badge">3</span>담은 품목 (${state.orderLines.length})</div>
     <div class="table-wrap">
       <table class="order-lines-table">
-        <thead><tr><th>모델명</th><th class="r">수량</th><th class="r">택배비</th><th class="col-brand">브랜드</th><th></th></tr></thead>
+        <thead><tr><th>모델명</th><th class="r">수량</th><th class="r">단가</th><th class="r">택배비</th><th class="r col-amount">금액</th><th class="col-brand">브랜드</th><th></th></tr></thead>
         <tbody>${lineRows || `<tr><td colspan="6" class="empty">아직 담은 품목이 없습니다. 위에서 모델을 눌러 담아보세요.</td></tr>`}</tbody>
       </table>
     </div>
@@ -715,8 +719,8 @@ function renderInvoiceTab(){
     const shipLabel = l.shipVat==='none' ? '무료' : (l.shippingTotal ? `${fmt(l.shippingTotal)}<span class="badge-vat">${l.shipVat==='included'?'포함':'별도'}</span>` : '-');
     return `<tr>
       <td class="col-model">${escapeHtml(l.model)}</td>
-      <td class="r num">${fmt(l.unitPrice)}</td>
       <td class="r num">${l.qty}</td>
+      <td class="r num">${fmt(l.unitPrice)}</td>
       <td class="r num">${fmt(l.amount)}</td>
       <td class="r num">${shipLabel}</td>
       <td><span class="pill ${brandClass(l.brand)}">${l.brand}</span></td></tr>`;
@@ -746,7 +750,7 @@ function renderInvoiceTab(){
     </div>
     <div class="table-wrap">
       <table class="invoice-table">
-        <thead><tr><th>모델명</th><th class="r">판매단가</th><th class="r">수량</th><th class="r">판매금액</th><th class="r">택배비</th><th>브랜드</th></tr></thead>
+        <thead><tr><th>모델명</th><th class="r">수량</th><th class="r">단가</th><th class="r">판매금액</th><th class="r">택배비</th><th>브랜드</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
     </div>
@@ -1418,6 +1422,98 @@ async function confirmRestoreBackup(){
   if(ok) render();
 }
 
+/* =================== 가격표 (조회용) =================== */
+function priceListFilterDefaults(){ return { brand:'', gubun:'', model:'', group:'0가', ship:'included' }; }
+function ensurePriceListFilter(){
+  if(!state.priceListFilter) state.priceListFilter = priceListFilterDefaults();
+  return state.priceListFilter;
+}
+const SHIP_LABEL_MAP = {none:'무료', included:'포함', separate:'별도'};
+// 무료→0, 포함→금액 그대로, 별도→부가세 10% 포함가로 환산해서 보여줌 (가격표 조회 화면 전용 계산)
+function priceListShipDisplay(fee, ship){
+  if(!fee) return 0;
+  if(ship==='none') return 0;
+  if(ship==='separate') return Math.round(fee*1.1);
+  return fee;
+}
+function priceListFilteredRows(){
+  const f = ensurePriceListFilter();
+  const q = (f.model||'').trim().toLowerCase();
+  return state.costItems.filter(c=>{
+    if(f.brand && c.brand!==f.brand) return false;
+    if(f.gubun && c.gubun!==f.gubun) return false;
+    if(q && !String(c.model||'').toLowerCase().includes(q)) return false;
+    return true;
+  }).sort((a,b)=> a.brand===b.brand ? String(a.model).localeCompare(String(b.model),'ko') : a.brand.localeCompare(b.brand,'ko'));
+}
+function priceListRowsHtml(){
+  const f = ensurePriceListFilter();
+  const rows = priceListFilteredRows();
+  if(!rows.length) return `<tr><td colspan="6" class="empty">조건에 맞는 모델이 없습니다.</td></tr>`;
+  return rows.map(c=>{
+    const sh = state.shippingItems.find(s=>s.brand===c.brand && s.model===c.model);
+    const fee = sh ? sh.fee : 0;
+    const priceVal = (c.prices && c.prices[f.group]!=null) ? c.prices[f.group] : c.cost;
+    return `<tr>
+      <td><span class="pill ${brandClass(c.brand)}">${brandShort(c.brand)}</span></td>
+      <td>${escapeHtml(c.gubun||'-')}</td>
+      <td class="col-model-wrap">${escapeHtml(c.model)}</td>
+      <td class="r num">${fmt(c.cost)}</td>
+      <td class="r num">${fmt(priceVal)}</td>
+      <td class="r num">${fmt(priceListShipDisplay(fee, f.ship))}</td>
+    </tr>`;
+  }).join('');
+}
+function renderPriceListBody(){
+  const tb = document.getElementById('priceListTbody');
+  if(tb) tb.innerHTML = priceListRowsHtml();
+  const f = ensurePriceListFilter();
+  const gh = document.getElementById('priceListGroupHead');
+  if(gh) gh.textContent = f.group;
+  const sh = document.getElementById('priceListShipHead');
+  if(sh) sh.textContent = `배송비(${SHIP_LABEL_MAP[f.ship]})`;
+  const cnt = document.getElementById('priceListCount');
+  if(cnt) cnt.textContent = priceListFilteredRows().length+'건';
+}
+function updatePriceListFilter(key, value){
+  ensurePriceListFilter()[key] = value;
+  renderPriceListBody();
+}
+function renderPriceListTab(){
+  const f = ensurePriceListFilter();
+  const gubuns = [...new Set(state.costItems.map(c=>c.gubun).filter(Boolean))];
+  return `<div class="card">
+    <h2>📋 가격표</h2>
+    <p class="desc">브랜드·재질·모델명으로 빠르게 찾아보는 조회용 화면입니다. 값을 고치려면 설정 → 원가표로 가세요.</p>
+    <div class="row" style="gap:8px;flex-wrap:wrap;margin:14px 0;">
+      <select class="inline-sel" onchange="updatePriceListFilter('brand',this.value)">
+        <option value="" ${!f.brand?'selected':''}>전체 브랜드</option>
+        ${BRANDS.map(b=>`<option value="${b}" ${f.brand===b?'selected':''}>${brandShort(b)}</option>`).join('')}
+      </select>
+      <select class="inline-sel" onchange="updatePriceListFilter('gubun',this.value)">
+        <option value="" ${!f.gubun?'selected':''}>전체 재질</option>
+        ${gubuns.map(g=>`<option value="${escapeHtml(g)}" ${f.gubun===g?'selected':''}>${escapeHtml(g)}</option>`).join('')}
+      </select>
+      <input type="text" id="priceListModelInput" placeholder="모델명 검색 (1자 이상)" value="${escapeHtml(f.model||'')}" oninput="updatePriceListFilter('model',this.value)" autocomplete="off" style="min-width:160px;flex:1;">
+      <select class="inline-sel" onchange="updatePriceListFilter('group',this.value)">
+        ${PRICE_GROUP_KEYS.map(g=>`<option value="${g}" ${f.group===g?'selected':''}>${g}</option>`).join('')}
+      </select>
+      <select class="inline-sel" onchange="updatePriceListFilter('ship',this.value)">
+        <option value="none" ${f.ship==='none'?'selected':''}>무료</option>
+        <option value="included" ${f.ship==='included'?'selected':''}>포함</option>
+        <option value="separate" ${f.ship==='separate'?'selected':''}>별도</option>
+      </select>
+    </div>
+    <p class="desc small" id="priceListCount" style="margin:0 0 8px;">${priceListFilteredRows().length}건</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>브랜드</th><th>재질</th><th>모델명</th><th class="r">원가</th><th class="r" id="priceListGroupHead">${f.group}</th><th class="r" id="priceListShipHead">배송비(${SHIP_LABEL_MAP[f.ship]})</th></tr></thead>
+        <tbody id="priceListTbody">${priceListRowsHtml()}</tbody>
+      </table>
+    </div>
+  </div>`;
+}
+
 async function resetOne(what){
   const label = what==='cost'?'원가표':what==='shipping'?'택배비표':'거래처';
   if(!confirm(label+'을(를) 지우고 기본값으로 되돌립니다. 계속할까요?')) return;
@@ -1651,7 +1747,7 @@ function applyCostAoa(aoa){
   const header=aoa[hi].map(x=>String(x||'').trim());
   const col=name=>header.indexOf(name);
   const cB=col('제조사')>=0?col('제조사'):col('브랜드');
-  const cG=col('구분'), cM=col('모델명'), cC=col('원가'), cS=col('배송비')>=0?col('배송비'):col('택배비');
+  const cG=col('구분')>=0?col('구분'):col('재질'), cM=col('모델명'), cC=col('원가'), cS=col('배송비')>=0?col('배송비'):col('택배비');
   const gCols={}; PRICE_GROUP_KEYS.forEach(g=>gCols[g]=col(g));
   let n=0;
   for(let i=hi+1;i<aoa.length;i++){
