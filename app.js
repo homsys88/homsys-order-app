@@ -1047,47 +1047,104 @@ function deleteHistory(id){
   saveData(); render();
 }
 
-async function makePDF(){
-  const btn = document.getElementById('pdfBtn');
+// 거래명세서 화면을 PDF로 만듭니다 (다운로드/업로드 공용 로직)
+async function buildInvoicePdf(){
   const area = document.getElementById('invoiceArea');
-  if(!area) return;
-  btn.disabled = true; btn.textContent = '만드는 중…';
-  try{
-    const canvas = await html2canvas(area, {scale:2, backgroundColor:'#ffffff'});
-    const img = canvas.toDataURL('image/png');
-    const { jsPDF } = window.jspdf;
-    const pdf = new jsPDF('p','mm','a4');
-    const pw = pdf.internal.pageSize.getWidth();
-    const ph = pdf.internal.pageSize.getHeight();
-    const margin = 10;
-    const iw = pw - margin*2;
-    const ih = canvas.height * iw / canvas.width;
-    let y = margin, rest = ih;
-    // 여러 페이지 분할
-    if(ih <= ph - margin*2){
-      pdf.addImage(img, 'PNG', margin, y, iw, ih);
-    } else {
-      let position = margin;
-      let remaining = ih;
-      // 단순 분할: 이미지 하나를 여러 페이지에 걸쳐 표시
+  if(!area) throw new Error('거래명세서 화면을 찾을 수 없습니다.');
+  const canvas = await html2canvas(area, {scale:2, backgroundColor:'#ffffff'});
+  const img = canvas.toDataURL('image/png');
+  const { jsPDF } = window.jspdf;
+  const pdf = new jsPDF('p','mm','a4');
+  const pw = pdf.internal.pageSize.getWidth();
+  const ph = pdf.internal.pageSize.getHeight();
+  const margin = 10;
+  const iw = pw - margin*2;
+  const ih = canvas.height * iw / canvas.width;
+  // 여러 페이지 분할
+  if(ih <= ph - margin*2){
+    pdf.addImage(img, 'PNG', margin, margin, iw, ih);
+  } else {
+    let position = margin;
+    let remaining = ih;
+    // 단순 분할: 이미지 하나를 여러 페이지에 걸쳐 표시
+    pdf.addImage(img, 'PNG', margin, position, iw, ih);
+    remaining -= (ph - margin*2);
+    while(remaining > 0){
+      pdf.addPage();
+      position = margin - (ih - remaining);
       pdf.addImage(img, 'PNG', margin, position, iw, ih);
       remaining -= (ph - margin*2);
-      while(remaining > 0){
-        pdf.addPage();
-        position = margin - (ih - remaining);
-        pdf.addImage(img, 'PNG', margin, position, iw, ih);
-        remaining -= (ph - margin*2);
-      }
     }
-    const cust = currentCustomer();
-    const fname = `거래명세서_${cust?cust.name:'발주'}_${state.orderMeta.date}.pdf`;
-    pdf.save(fname);
+  }
+  const cust = currentCustomer();
+  const filename = `거래명세서_${cust?cust.name:'발주'}_${state.orderMeta.date}.pdf`;
+  return { pdf, filename };
+}
+
+async function makePDF(){
+  const btn = document.getElementById('pdfBtn');
+  if(!btn) return;
+  btn.disabled = true; btn.textContent = '만드는 중…';
+  try{
+    const { pdf, filename } = await buildInvoicePdf();
+    pdf.save(filename);
     toast('PDF를 저장했습니다');
   }catch(e){
     alert('PDF 생성 중 오류가 발생했습니다: '+e.message);
   }finally{
     btn.disabled = false; btn.textContent = '📄 PDF 다운로드';
   }
+}
+
+/* ===== 거래명세서 PDF 링크 발송 (Supabase Storage 업로드 + 알림톡 버튼) =====
+   기존 send-solapi-message(문자/MMS)는 건드리지 않고, 별도 Edge Function
+   send-solapi-kakao-link로만 처리합니다. 설정 방법은
+   README_카톡링크발송_설정순서.txt 참고. */
+const INVOICE_BUCKET = 'invoices';
+const KAKAO_ORDER_LINK_TEMPLATE_ID = ''; // 웹링크 버튼이 추가된 카카오 템플릿 승인 후 여기에 templateId 입력
+
+async function uploadInvoicePdf(pdf, filename){
+  if(!db) throw new Error('Supabase 연결이 없습니다.');
+  const { data: sessionData } = await db.auth.getSession();
+  if(!sessionData || !sessionData.session) throw new Error('로그인이 필요합니다.');
+  const uid = sessionData.session.user.id;
+  const path = `${uid}/${Date.now()}_${filename}`;
+  const blob = pdf.output('blob');
+  const { error: upErr } = await db.storage.from(INVOICE_BUCKET).upload(path, blob, {
+    contentType: 'application/pdf',
+    upsert: false
+  });
+  if(upErr) throw new Error('PDF 업로드 실패: '+upErr.message);
+  const { data: urlData, error: urlErr } = await db.storage
+    .from(INVOICE_BUCKET)
+    .createSignedUrl(path, 60*60*24*7); // 7일간 유효한 링크
+  if(urlErr) throw new Error('링크 생성 실패: '+urlErr.message);
+  return urlData.signedUrl;
+}
+
+async function sendKakaoOrderNoticeWithLink(to, link){
+  if(!db) throw new Error('Supabase 연결이 없습니다.');
+  const { data: sessionData } = await db.auth.getSession();
+  if(!sessionData || !sessionData.session) throw new Error('로그인이 필요합니다.');
+  const payload = {
+    to,
+    pfId: KAKAO_PF_ID,
+    templateId: KAKAO_ORDER_LINK_TEMPLATE_ID,
+    variables: { ...buildKakaoOrderVariables(), '링크': link }
+  };
+  const { data, error } = await db.functions.invoke('send-solapi-kakao-link', { body: payload });
+  if(error){
+    let msg = error.message || '알림톡 발송 서버 호출에 실패했습니다.';
+    try{
+      if(error.context && typeof error.context.json==='function'){
+        const detail = await error.context.json();
+        msg = detail.error || detail.message || msg;
+      }
+    }catch(_e){}
+    throw new Error(msg);
+  }
+  if(!data || data.ok!==true) throw new Error((data && (data.error||data.message)) || '알림톡 발송에 실패했습니다.');
+  return data;
 }
 
 function openSmsModal(){
@@ -1204,11 +1261,12 @@ ${escapeHtml(vars['거래처'])}님, 발주해 주셔서 감사합니다.
 
 상세 명세서는 별도로 전달드립니다.</div>
 
-      <p class="desc small">품목별 상세 표는 알림톡 템플릿에 담기 어려워서, 위 요약 알림만 자동 발송됩니다. <b>상세 거래명세서는 위 "PDF 다운로드"</b>로 받아 카카오톡 채팅방에 직접 첨부해 보내주세요.</p>
+      <p class="desc small">품목별 상세 표는 알림톡 템플릿에 담기 어려워서, 위 요약 알림만 자동 발송됩니다. <b>상세 거래명세서 PDF는 아래 "링크 포함 발송"</b>을 누르면 다운로드 링크가 함께 자동 발송됩니다.</p>
 
       <div id="kakaoResult" style="font-size:13px;margin-top:4px;"></div>
       <div class="modal-actions">
         <button class="btn ghost" onclick="closeModal()">닫기</button>
+        <button class="btn sm" id="kakaoLinkBtn" onclick="doSendKakaoLink()">📎 명세서 링크 포함 발송</button>
         <button class="btn accent" id="kakaoSendBtn" onclick="doSendKakao()">알림톡 보내기</button>
       </div>
     </div>
@@ -1230,6 +1288,34 @@ async function doSendKakao(){
   }catch(err){
     rd.innerHTML='<span style="color:var(--danger)">발송 실패: '+err.message+'</span>';
     btn.disabled=false; btn.textContent='알림톡 보내기';
+  }
+}
+async function doSendKakaoLink(){
+  if(!KAKAO_ORDER_LINK_TEMPLATE_ID){
+    alert('링크 포함 발송은 아직 설정 전입니다.\nREADME_카톡링크발송_설정순서.txt를 참고해 Storage와 카카오 템플릿 설정을 먼저 완료해주세요.');
+    return;
+  }
+  const to=document.getElementById('kakaoTo').value.trim();
+  const rd=document.getElementById('kakaoResult');
+  const btn=document.getElementById('kakaoLinkBtn');
+  if(!to){ rd.innerHTML='<span style="color:var(--danger)">받는 번호를 입력하세요.</span>'; return; }
+  btn.disabled=true; btn.textContent='명세서 만드는 중…';
+  rd.innerHTML='<span class="muted">명세서 PDF를 만드는 중…</span>';
+  try{
+    const { pdf, filename } = await buildInvoicePdf();
+    btn.textContent='업로드 중…';
+    rd.innerHTML='<span class="muted">PDF를 업로드하는 중…</span>';
+    const link = await uploadInvoicePdf(pdf, filename);
+    btn.textContent='보내는 중…';
+    rd.innerHTML='<span class="muted">보안 서버를 통해 발송 중…</span>';
+    await sendKakaoOrderNoticeWithLink(to, link);
+    rd.innerHTML='<span style="color:var(--teal)">✓ 명세서 링크를 포함해 알림톡을 발송했습니다.</span>';
+    btn.textContent='발송됨';
+    toast('명세서 링크를 발송했습니다');
+    setTimeout(closeModal, 1400);
+  }catch(err){
+    rd.innerHTML='<span style="color:var(--danger)">발송 실패: '+err.message+'</span>';
+    btn.disabled=false; btn.textContent='📎 명세서 링크 포함 발송';
   }
 }
 function closeModal(){ document.getElementById('modalRoot').innerHTML=''; }
