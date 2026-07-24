@@ -228,42 +228,6 @@ function buildOrderSmsText(){
   return `[발주 거래명세서]\n${supHead}거래처: ${cust?cust.name:''}\n일자: ${state.orderMeta.date}\n\n${lines}\n\n${totals}${payInfo}`;
 }
 
-/* ===== MMS(이미지 문자) 발송 ===== */
-// 거래명세서 DOM을 JPG(base64)로, 솔라피 제한(1500x1440px, 200KB) 이하로 맞춤
-async function invoiceToJpegBase64(){
-  const area=document.getElementById('invoiceArea');
-  if(!area) throw new Error('거래명세서 화면을 찾을 수 없습니다.');
-  const raw=await html2canvas(area,{scale:2,backgroundColor:'#ffffff'});
-
-  // 1) 픽셀 한도(가로 1500, 세로 1440) 안으로 축소
-  const MAX_W=1500, MAX_H=1440;
-  let scale=Math.min(1, MAX_W/raw.width, MAX_H/raw.height);
-  let w=Math.floor(raw.width*scale), h=Math.floor(raw.height*scale);
-  let work=document.createElement('canvas');
-  work.width=w; work.height=h;
-  work.getContext('2d').drawImage(raw,0,0,w,h);
-
-  // 2) 200KB 이하가 될 때까지 품질/해상도 조정
-  let quality=0.92;
-  for(let attempt=0; attempt<10; attempt++){
-    const b64=work.toDataURL('image/jpeg',quality).split(',')[1];
-    const bytes=Math.ceil(b64.length*3/4);
-    if(bytes<=200*1024) return b64;
-    if(quality>0.5){ quality-=0.12; }
-    else {
-      const c=document.createElement('canvas');
-      c.width=Math.max(300,Math.round(work.width*0.85));
-      c.height=Math.max(300,Math.round(work.height*0.85));
-      c.getContext('2d').drawImage(work,0,0,c.width,c.height);
-      work=c; quality=0.8;
-    }
-  }
-  return work.toDataURL('image/jpeg',0.5).split(',')[1];
-}
-async function sendMmsSecure(to, subject, text, imageBase64){
-  return sendSolapiSecure({mode:'mms',to,subject,text,imageBase64});
-}
-
 /* ===== 카카오 알림톡 (발주 요약 안내) ===== */
 // 채널/템플릿은 비밀키가 아니라 공개 식별자라 코드에 둡니다. (Solapi 콘솔 > 카카오/네이버/RCS)
 const KAKAO_PF_ID = 'KA01PF260703021005893EzZlbUkohfM';
@@ -314,7 +278,6 @@ function render(){
   else if(state.tab==='pricelist') app.innerHTML = renderPriceListTab();
   else if(state.tab==='settings') app.innerHTML = renderSettingsTab();
   if(state.tab==='settings' && state.settingsSub==='customer') requestAnimationFrame(initCustomerTableScroll);
-  if(state.tab==='settings' && state.settingsSub==='backup') requestAnimationFrame(loadAutoBackupListUI);
 }
 
 function toast(msg){
@@ -431,11 +394,11 @@ function renderOrderTab(){
       </table>
     </div>
     <div class="row" style="margin-top:16px;gap:8px;align-items:center;">
-      <button class="btn ghost" onclick="saveDraftOrder()" ${state.orderLines.length===0?'disabled':''}>📝 임시저장</button>
-      ${state.draftOrder ? `<button class="btn ghost" onclick="loadDraftOrder()">📂 이어서 작업</button><button class="btn danger" onclick="deleteDraftOrder()">삭제</button>` : ''}
+      <button class="btn ghost" onclick="saveDraftOrder()" ${state.orderLines.length===0?'disabled':''}>📝 작업 저장해두기</button>
+      ${state.draftOrder ? `<button class="btn ghost" onclick="loadDraftOrder()">📂 저장된 작업 불러오기</button><button class="btn danger" onclick="deleteDraftOrder()">삭제</button>` : ''}
       <button class="btn accent big" style="flex:1;" onclick="setTab('invoice')" ${state.orderLines.length===0?'disabled':''}>거래명세서 만들기 →</button>
     </div>
-    ${state.draftOrder ? `<p class="desc" style="margin:8px 0 0;">임시저장: ${state.draftOrder.customerName||'거래처 미지정'} · ${state.draftOrder.lines.length}개 품목 · ${new Date(state.draftOrder.savedAt).toLocaleString('ko-KR')}</p>` : ''}
+    ${state.draftOrder ? `<p class="desc" style="margin:8px 0 0;">저장된 작업: ${state.draftOrder.customerName||'거래처 미지정'} · ${state.draftOrder.lines.length}개 품목 · ${new Date(state.draftOrder.savedAt).toLocaleString('ko-KR')}</p>` : ''}
   </div>`;
 }
 function changeCustGroupQuick(brand, g){
@@ -632,9 +595,9 @@ function changeLineShip(id, v){
   render();
 }
 
-/* =================== 임시저장 =================== */
+/* =================== 작업 저장(임시저장) =================== */
 async function saveDraftOrder(){
-  if(state.orderLines.length===0){ alert('임시저장할 품목이 없습니다.'); return; }
+  if(state.orderLines.length===0){ alert('저장할 품목이 없습니다.'); return; }
   const cust=currentCustomer();
   const sup=currentSupplier();
   state.draftOrder={
@@ -647,7 +610,7 @@ async function saveDraftOrder(){
   };
   const ok = await saveCloudNow();
   render();
-  if(ok) toast('Supabase에 임시저장했습니다');
+  if(ok) toast('작업을 저장해두었습니다');
 }
 async function loadDraftOrder(){
   const btn = document.querySelector('[onclick="loadDraftOrder()"]');
@@ -658,12 +621,12 @@ async function loadDraftOrder(){
     if(!latest){
       state.draftOrder=null;
       render();
-      alert('Supabase에 저장된 임시발주가 없습니다.');
+      alert('저장된 작업이 없습니다.');
       return;
     }
     const hasCurrentWork = !!state.orderMeta.customerId || state.orderLines.length>0;
     const sameAsDraft = hasCurrentWork && state.draftOrder && JSON.stringify(state.orderLines)===JSON.stringify(state.draftOrder.lines||[]) && Number(state.orderMeta.customerId||0)===Number((state.draftOrder.orderMeta||{}).customerId||0);
-    if(hasCurrentWork && !sameAsDraft && !confirm('현재 작성 중인 내용이 사라집니다. 임시저장한 작업을 이어서 할까요?')) return;
+    if(hasCurrentWork && !sameAsDraft && !confirm('현재 작성 중인 내용이 사라집니다. 저장된 작업을 불러올까요?')) return;
     state.draftOrder = latest;
     state.orderMeta=JSON.parse(JSON.stringify(latest.orderMeta||{}));
     if(!state.orderMeta.date) state.orderMeta.date=localTodayISO();
@@ -681,21 +644,21 @@ async function loadDraftOrder(){
     state.editingHistoryId=null;
     state.tab='order';
     render();
-    toast(`임시저장한 작업을 이어서 불러왔습니다 · ${state.orderLines.length}개 품목`);
+    toast(`저장된 작업을 불러왔습니다 · ${state.orderLines.length}개 품목`);
   }catch(e){
     console.error(e);
-    alert('임시저장을 불러오지 못했습니다: '+e.message);
+    alert('저장된 작업을 불러오지 못했습니다: '+e.message);
   }finally{
     if(btn && document.body.contains(btn)){ btn.disabled=false; btn.textContent=oldText; }
   }
 }
 async function deleteDraftOrder(){
   if(!state.draftOrder) return;
-  if(!confirm('Supabase의 임시저장 내용을 삭제할까요?')) return;
+  if(!confirm('저장해둔 작업을 삭제할까요?')) return;
   state.draftOrder=null;
   const ok=await saveCloudNow();
   render();
-  if(ok) toast('임시저장을 삭제했습니다');
+  if(ok) toast('저장해둔 작업을 삭제했습니다');
 }
 
 /* =================== 거래명세서 =================== */
@@ -779,6 +742,23 @@ function nextOrderNo(dateStr){
   const seq=(nums.length?Math.max(...nums):0)+1;
   return ymd+String(seq).padStart(4,'0');
 }
+/* 발주 이력은 다른 프로그램에서 세무 증빙을 따로 관리하므로, 최근 며칠치만 남기고 자동 정리합니다. */
+const ORDER_HISTORY_KEEP_DAYS = 10;
+function orderHistoryCutoffDate(){
+  const d = new Date();
+  d.setDate(d.getDate() - ORDER_HISTORY_KEEP_DAYS);
+  const p = n => String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`;
+}
+function trimOrderHistory(){
+  const cutoff = orderHistoryCutoffDate();
+  const before = state.orderHistory.length;
+  state.orderHistory = state.orderHistory.filter(h => String(h.date||'') >= cutoff);
+  return state.orderHistory.length !== before;
+}
+async function trimOrderHistoryIfStale(){
+  if(trimOrderHistory()){ render(); await saveCloudNow(); }
+}
 function saveToHistory(silent){
   if(state.orderLines.length===0){ if(!silent) alert('담은 품목이 없습니다.'); return; }
   const cust=currentCustomer();
@@ -803,6 +783,7 @@ function saveToHistory(silent){
       grand:t.grand
     };
     state.editingHistoryId=null;
+    trimOrderHistory();
     saveData(true);
     if(!silent){ toast('발주 이력을 수정했습니다'); render(); }
     return;
@@ -826,6 +807,7 @@ function saveToHistory(silent){
     grand:t.grand
   };
   state.orderHistory.unshift(entry);
+  trimOrderHistory();
   saveData(true);
   if(!silent){ toast('발주번호 '+entry.orderNo+'로 저장했습니다'); render(); }
 }
@@ -863,7 +845,7 @@ function renderHistoryTab(){
   const brandOpts=['전체',...BRANDS].map(b=>`<option value="${b}" ${f.brand===b?'selected':''}>${b==='전체'?'전체 브랜드':brandShort(b)}</option>`).join('');
   return `<div class="card">
     <h2>발주 이력 <span class="badge-vat">${state.orderHistory.length}건</span></h2>
-    <p class="desc">기간·거래처·발주번호·브랜드로 찾고, 저장된 발주를 다시 열거나 PDF로 내려받고 복사해 새 발주로 사용할 수 있습니다.</p>
+    <p class="desc">기간·거래처·발주번호·브랜드로 찾고, 저장된 발주를 다시 열거나 PDF로 내려받고 복사해 새 발주로 사용할 수 있습니다. 최근 ${ORDER_HISTORY_KEEP_DAYS}일치만 보관되며, 그 이전 발주는 자동으로 정리됩니다.</p>
     <div class="history-filter-grid">
       <label class="f">시작일<input type="date" value="${f.from||''}" onchange="setHistoryFilter('from',this.value)"></label>
       <label class="f">종료일<input type="date" value="${f.to||''}" onchange="setHistoryFilter('to',this.value)"></label>
@@ -1149,7 +1131,6 @@ async function sendKakaoOrderNoticeWithLink(to, link){
 
 function openSmsModal(){
   const cust=currentCustomer();
-  const connected = true;
   const preview = buildOrderSmsText();
   const defaultTo = cust && cust.phone ? cust.phone : '';
   document.getElementById('modalRoot').innerHTML = `
@@ -1158,67 +1139,19 @@ function openSmsModal(){
       <h3>✉ 문자 발송</h3>
       <div class="lock-hint" style="margin-bottom:12px;">로그인 계정으로 Supabase 보안 서버를 통해 발송합니다.</div>
 
-      <div class="send-mode" style="margin-bottom:12px;">
-        <button class="mode-btn on" id="modeImgBtn" onclick="setSmsMode('img')">🖼 명세서 이미지로 보내기 <span class="muted">(MMS)</span></button>
-        <button class="mode-btn" id="modeTxtBtn" onclick="setSmsMode('txt')">📝 글자로 보내기 <span class="muted">(LMS)</span></button>
-      </div>
-
       <label class="f" style="margin-bottom:10px;">받는 사람 번호
         <input type="text" id="smsTo" placeholder="010-0000-0000" value="${defaultTo}" style="width:100%;"></label>
 
-      <div id="smsImgArea">
-        <div class="pick-summary" style="margin:0 0 10px;">화면의 거래명세서를 그대로 <b>이미지로 떠서</b> 보냅니다. 표·단가·합계가 그림으로 전달돼요. <span class="muted">(건당 요금이 글자문자보다 높아요)</span></div>
-      </div>
-      <div id="smsTxtArea" style="display:none;">
-        <label class="f" style="margin-bottom:10px;">보낼 내용 (수정 가능)
-          <textarea id="smsText" style="width:100%;min-height:160px;border:1px solid var(--line);border-radius:8px;padding:10px;font-family:inherit;font-size:13px;line-height:1.5;">${preview}</textarea></label>
-      </div>
+      <label class="f" style="margin-bottom:10px;">보낼 내용 (수정 가능)
+        <textarea id="smsText" style="width:100%;min-height:160px;border:1px solid var(--line);border-radius:8px;padding:10px;font-family:inherit;font-size:13px;line-height:1.5;">${preview}</textarea></label>
 
       <div id="smsResult" style="font-size:13px;margin-top:4px;"></div>
       <div class="modal-actions">
         <button class="btn ghost" onclick="closeModal()">닫기</button>
-        <button class="btn accent" id="smsSendBtn" onclick="doSend()" >이미지로 보내기</button>
+        <button class="btn accent" id="smsSendBtn" onclick="doSendSms()" >문자 보내기</button>
       </div>
     </div>
   </div>`;
-  state.smsMode='img';
-}
-function setSmsMode(m){
-  state.smsMode=m;
-  document.getElementById('modeImgBtn').classList.toggle('on', m==='img');
-  document.getElementById('modeTxtBtn').classList.toggle('on', m==='txt');
-  document.getElementById('smsImgArea').style.display = m==='img'?'block':'none';
-  document.getElementById('smsTxtArea').style.display = m==='txt'?'block':'none';
-  const btn=document.getElementById('smsSendBtn');
-  if(btn) btn.textContent = m==='img'?'이미지로 보내기':'문자 보내기';
-}
-async function doSend(){
-  if(state.smsMode==='img') return doSendMms();
-  return doSendSms();
-}
-async function doSendMms(){
-  const to=document.getElementById('smsTo').value.trim();
-  const rd=document.getElementById('smsResult');
-  const btn=document.getElementById('smsSendBtn');
-  if(!to){ rd.innerHTML='<span style="color:var(--danger)">받는 번호를 입력하세요.</span>'; return; }
-  btn.disabled=true; btn.textContent='이미지 만드는 중…';
-  try{
-    const cust=currentCustomer();
-    const subject='['+(cust?cust.name:'발주')+'] 거래명세서';
-    const text='거래명세서를 보내드립니다. 합계 '+fmt(calcTotals().grand)+'원 (VAT포함)';
-    rd.innerHTML='<span class="muted">명세서 이미지를 만드는 중…</span>';
-    const b64=await invoiceToJpegBase64();
-    btn.textContent='보내는 중…';
-    rd.innerHTML='<span class="muted">보안 서버를 통해 발송 중…</span>';
-    await sendMmsSecure(to, subject, text, b64);
-    rd.innerHTML='<span style="color:var(--teal)">✓ 이미지 문자(MMS)를 발송했습니다.</span>';
-    btn.textContent='발송됨';
-    toast('이미지 문자를 발송했습니다');
-    setTimeout(closeModal, 1400);
-  }catch(err){
-    rd.innerHTML='<span style="color:var(--danger)">발송 실패: '+err.message+'</span>';
-    btn.disabled=false; btn.textContent='이미지로 보내기';
-  }
 }
 async function doSendSms(){
   const to=document.getElementById('smsTo').value.trim();
@@ -1332,7 +1265,6 @@ function renderSettingsTab(){
       <button class="${sub==='supplier'?'on':''}" onclick="setSettingsSub('supplier')">공급자</button>
       <button class="${sub==='sms'?'on':''}" onclick="setSettingsSub('sms')">문자발송</button>
       <button class="${sub==='account'?'on':''}" onclick="setSettingsSub('account')">계정·비밀번호</button>
-      <button class="${sub==='backup'?'on':''}" onclick="setSettingsSub('backup')">💾 백업</button>
     </div>`;
   let body='';
   if(sub==='import') body = renderImportAllSettings();
@@ -1341,7 +1273,6 @@ function renderSettingsTab(){
   else if(sub==='sms') body = renderSmsSettings();
   else if(sub==='supplier') body = renderSupplierSettings();
   else if(sub==='account') body = renderAccountSettings();
-  else if(sub==='backup') body = renderBackupSettings();
   else body = renderCustomerSettings();
   return subNav + body;
 }
@@ -1385,127 +1316,8 @@ async function changePassword(){
 function renderSmsSettings(){
   return `<div class="card"><h2>문자발송 보안연동</h2>
   <div class="lock-hint">솔라피 API Key·Secret과 발신번호는 Supabase Edge Function Secrets에만 저장됩니다.</div>
-  <p class="desc">로그인한 사용자만 문자 또는 이미지 문자 발송을 요청할 수 있습니다. 앱과 GitHub에는 비밀키가 저장되지 않습니다.</p>
-  <div class="pick-summary" style="margin-top:12px;"><b>연동 함수:</b> send-solapi-message<br><b>발송 방식:</b> LMS/SMS 자동, MMS 이미지 발송<br><b>발주 저장:</b> 문자발송과 별도</div></div>`;
-}
-
-/* =================== 백업 =================== */
-function renderBackupSettings(){
-  return `<div class="card">
-    <h2>💾 전체 백업</h2>
-    <p class="desc">거래처·공급자·원가표·택배비표·발주이력을 파일 하나로 저장하거나, 저장해둔 파일로 되돌릴 수 있습니다. 문자발송 보안키는 포함되지 않습니다.</p>
-    <div class="row" style="gap:10px;margin-top:14px;flex-wrap:wrap;">
-      <button class="btn accent" onclick="downloadBackupFile()">⬇️ 지금 백업 파일 다운로드</button>
-      <button class="btn ghost" onclick="document.getElementById('restoreFileInput').click()">⬆️ 백업 파일로 복원</button>
-      <input type="file" id="restoreFileInput" accept="application/json,.json" style="display:none" onchange="handleBackupFileSelect(event)">
-    </div>
-  </div>
-  <div class="card">
-    <div class="section-title">최근 자동백업</div>
-    <p class="desc small">매일 처음 접속할 때, 그리고 복원 직전에 자동으로 만들어지며 최근 ${AUTO_BACKUP_KEEP}개만 보관됩니다.</p>
-    <button class="btn ghost" style="margin:8px 0 14px;" onclick="manualAutoBackupNow()">지금 자동백업 만들기</button>
-    <div id="autoBackupList" class="desc">불러오는 중...</div>
-  </div>`;
-}
-
-function fmtBackupDate(iso){
-  if(!iso) return '-';
-  const d = new Date(iso);
-  if(Number.isNaN(d.getTime())) return iso;
-  const p = n => String(n).padStart(2,'0');
-  return `${d.getFullYear()}.${p(d.getMonth()+1)}.${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
-}
-function backupLabelText(label){
-  return label==='daily' ? '일일 자동백업' : label==='pre-restore-backup' ? '복원 전 안전백업' : label || '자동백업';
-}
-
-async function loadAutoBackupListUI(){
-  const box = document.getElementById('autoBackupList');
-  if(!box) return;
-  const list = await listAutoBackups();
-  if(!list.length){ box.innerHTML = '<p class="desc small">아직 자동백업이 없습니다.</p>'; return; }
-  box.innerHTML = `<table><thead><tr><th>구분</th><th>생성 시각</th><th>거래처</th><th>발주이력</th><th></th></tr></thead><tbody>` +
-    list.map(b => `<tr>
-      <td>${escapeHtml(backupLabelText(b.label))}</td>
-      <td>${fmtBackupDate(b.created_at)}</td>
-      <td>${(b.table_counts&&b.table_counts.customers)??'-'}</td>
-      <td>${(b.table_counts&&b.table_counts.order_history)??'-'}</td>
-      <td style="white-space:nowrap;">
-        <button class="btn ghost" onclick="restoreAutoBackupUI(${b.id})">복원</button>
-        <button class="btn ghost" onclick="deleteAutoBackupUI(${b.id})">삭제</button>
-      </td>
-    </tr>`).join('') + `</tbody></table>`;
-}
-
-async function manualAutoBackupNow(){
-  const ok = await saveAutoBackup('manual');
-  if(ok){ toast('자동백업을 만들었습니다'); loadAutoBackupListUI(); }
-  else alert('자동백업 생성에 실패했습니다. Supabase 연결과 app_state_backups 테이블 권한을 확인해주세요.');
-}
-
-async function deleteAutoBackupUI(id){
-  if(!confirm('이 자동백업을 삭제할까요?')) return;
-  const ok = await deleteAutoBackup(id);
-  if(ok) loadAutoBackupListUI();
-  else alert('삭제에 실패했습니다.');
-}
-
-async function restoreAutoBackupUI(id){
-  const data = await fetchAutoBackupData(id);
-  if(!data){ alert('자동백업을 불러오지 못했습니다.'); return; }
-  openRestoreConfirmModal(data);
-}
-
-// 파일 선택으로 복원 시작 (검증 → 확인창)
-function handleBackupFileSelect(evt){
-  const file = evt.target.files && evt.target.files[0];
-  evt.target.value = '';
-  if(!file) return;
-  const reader = new FileReader();
-  reader.onload = () => {
-    let parsed;
-    try{ parsed = JSON.parse(reader.result); }
-    catch(e){ alert('올바른 JSON 파일이 아닙니다.'); return; }
-    const check = validateBackupFile(parsed);
-    if(!check.ok){ alert('백업 파일을 확인할 수 없습니다.\n\n' + check.errors.join('\n')); return; }
-    openRestoreConfirmModal(parsed);
-  };
-  reader.onerror = () => alert('파일을 읽지 못했습니다.');
-  reader.readAsText(file);
-}
-
-function openRestoreConfirmModal(backup){
-  state.pendingRestoreBackup = backup;
-  const cur = backupTableCounts(cloudPayload());
-  const next = backup.table_counts || backupTableCounts(backup.data);
-  const row = (label, curN, nextN) => `<tr><td>${label}</td><td>${curN}</td><td style="font-weight:700;color:${curN===nextN?'inherit':'var(--accent-ink)'};">${nextN}</td></tr>`;
-  document.getElementById('modalRoot').innerHTML = `<div class="modal-bg"><div class="modal">
-    <h3>백업 복원 확인</h3>
-    <p class="desc">백업 생성: <b>${fmtBackupDate(backup.created_at)}</b></p>
-    <div class="table-wrap"><table><thead><tr><th></th><th>현재</th><th>복원 후</th></tr></thead><tbody>
-      ${row('거래처', cur.customers, next.customers)}
-      ${row('공급자', cur.suppliers, next.suppliers)}
-      ${row('발주이력', cur.order_history, next.order_history)}
-      ${row('원가표', cur.cost_items, next.cost_items)}
-      ${row('택배비표', cur.shipping_items, next.shipping_items)}
-    </tbody></table></div>
-    <p class="desc small" style="color:var(--accent-ink);margin-top:10px;">⚠️ 지금 로그인되어 있는 다른 기기에도 즉시 반영됩니다. 복원 전 현재 상태는 자동으로 안전백업됩니다.</p>
-    <div class="modal-actions">
-      <button class="btn ghost" onclick="cancelRestoreBackup()">취소</button>
-      <button class="btn accent" onclick="confirmRestoreBackup()">복원 실행</button>
-    </div>
-  </div></div>`;
-}
-function cancelRestoreBackup(){ state.pendingRestoreBackup = null; closeModal(); }
-async function confirmRestoreBackup(){
-  const backup = state.pendingRestoreBackup;
-  if(!backup) return;
-  const btn = document.querySelector('#modalRoot .btn.accent');
-  if(btn){ btn.disabled = true; btn.textContent = '복원 중...'; }
-  const ok = await restoreFromBackup(backup);
-  state.pendingRestoreBackup = null;
-  closeModal();
-  if(ok) render();
+  <p class="desc">로그인한 사용자만 문자 발송을 요청할 수 있습니다. 앱과 GitHub에는 비밀키가 저장되지 않습니다.</p>
+  <div class="pick-summary" style="margin-top:12px;"><b>연동 함수:</b> send-solapi-message<br><b>발송 방식:</b> LMS/SMS 자동<br><b>발주 저장:</b> 문자발송과 별도</div></div>`;
 }
 
 /* =================== 가격표 (조회용) =================== */
